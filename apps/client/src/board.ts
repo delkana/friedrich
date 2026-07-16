@@ -250,33 +250,42 @@ function panByPx(dx: number, dy: number): void {
   applyView();
 }
 
+const DRAG_THRESHOLD = 8; // px of movement before a press counts as a drag (not a click)
+
 function setupPanZoom(): void {
   const el = mapView();
-  const pts = new Map<number, { x: number; y: number }>(); // active pointers
-  let moved = false;
+  const pts = new Map<number, { x: number; y: number }>(); // live pointers
+  let dragId: number | null = null; // the pointer currently panning
+  let start = { x: 0, y: 0 };        // its press position
+  let last = { x: 0, y: 0 };         // its last position (for incremental pan)
+  let didGesture = false;            // THIS gesture panned/pinched → suppress its click
   let pinchDist = 0;
   let pinchMid = { x: 0, y: 0 };
 
   el.addEventListener('pointerdown', (e) => {
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pts.size === 1) moved = false;
-    if (pts.size === 2) pinchDist = 0; // (re)initialize on next move
-    el.setPointerCapture(e.pointerId);
+    didGesture = false; // always start a fresh gesture — never inherit a prior drag's suppression
+    if (pts.size === 1) {
+      dragId = e.pointerId;
+      start = { x: e.clientX, y: e.clientY };
+      last = { ...start };
+    }
+    if (pts.size === 2) pinchDist = 0;
+    try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
   });
 
   el.addEventListener('pointermove', (e) => {
-    const prev = pts.get(e.pointerId);
-    if (!prev) return;
+    if (!pts.has(e.pointerId)) return;
     const cur = { x: e.clientX, y: e.clientY };
+    pts.set(e.pointerId, cur);
 
     if (pts.size >= 2) {
-      pts.set(e.pointerId, cur);
       const all = [...pts.values()];
       const a = all[0]!, b = all[1]!;
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       if (pinchDist > 0) {
-        moved = true;
+        didGesture = true;
         panByPx(mid.x - pinchMid.x, mid.y - pinchMid.y);      // follow the fingers
         if (dist > 0) zoomAt(mid.x, mid.y, pinchDist / dist);  // pinch = zoom
       }
@@ -285,24 +294,35 @@ function setupPanZoom(): void {
       return;
     }
 
-    const dx = cur.x - prev.x, dy = cur.y - prev.y;
-    if (!moved && Math.hypot(dx, dy) < 5) return;
-    moved = true;
+    if (e.pointerId !== dragId) return;
+    // only start panning once the pointer has clearly moved (total, from the press)
+    if (!didGesture && Math.hypot(cur.x - start.x, cur.y - start.y) < DRAG_THRESHOLD) return;
+    didGesture = true;
     el.classList.add('grabbing');
-    panByPx(dx, dy);
-    pts.set(e.pointerId, cur);
+    panByPx(cur.x - last.x, cur.y - last.y);
+    last = cur;
   });
 
   const release = (e: PointerEvent) => {
     pts.delete(e.pointerId);
     if (pts.size < 2) pinchDist = 0;
-    if (pts.size === 0) el.classList.remove('grabbing');
+    if (pts.size === 0) {
+      el.classList.remove('grabbing');
+      dragId = null;
+    } else if (e.pointerId === dragId) {
+      // the panning finger lifted but another remains — hand panning to it
+      const [nextId] = [...pts.keys()];
+      dragId = nextId!;
+      last = { ...pts.get(nextId!)! };
+    }
   };
   el.addEventListener('pointerup', release);
   el.addEventListener('pointercancel', release);
+  el.addEventListener('lostpointercapture', release);
 
-  // suppress the click that follows a real drag/pinch
-  el.addEventListener('click', (e) => { if (moved) { e.stopPropagation(); moved = false; } }, true);
+  // suppress ONLY the click that ends a real drag/pinch; a stationary click
+  // (didGesture === false) always reaches the board and selects/deselects
+  el.addEventListener('click', (e) => { if (didGesture) e.stopPropagation(); }, true);
 
   el.addEventListener('wheel', (e) => {
     e.preventDefault();

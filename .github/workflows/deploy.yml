@@ -1,0 +1,28 @@
+name: Deploy to Railway
+
+# Push-to-deploy: every push to main ships to Railway.
+# One-time setup: add a repository secret RAILWAY_TOKEN — a *project* token from
+# Railway (project → Settings → Tokens). Optionally override the service via a
+# repo variable RAILWAY_SERVICE_ID.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: >-
+          railway up --ci
+          --service ${{ vars.RAILWAY_SERVICE_ID || '205a5eb5-cdb3-418a-b047-b88ced58b4ee' }}
