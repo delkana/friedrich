@@ -34,6 +34,12 @@ export interface FriedrichState extends BaseState {
   readonly trains: Readonly<Record<string, Train>>;
   /** Each nation's Tactical Card hand. */
   readonly hands: Readonly<Record<Nation, readonly TacticalCard[]>>;
+  /** Each nation's face-down draw pile (order is secret — hidden in redaction). */
+  readonly decks: Readonly<Record<Nation, readonly TacticalCard[]>>;
+  /** Each nation's discard pile (played cards, reshuffled when the deck empties). */
+  readonly discards: Readonly<Record<Nation, readonly TacticalCard[]>>;
+  /** Cards each nation draws at the start of its stage (reduced by some Cards of Fate). */
+  readonly drawAllot: Readonly<Record<Nation, number>>;
   /**
    * Generals that have moved during the current nation stage → the city each
    * started the stage in. A general may move only once per stage; the origin

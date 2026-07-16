@@ -25,14 +25,29 @@ const placed = (s: FriedrichState, moves: Record<string, string>): FriedrichStat
   ),
 });
 
-test('setup deals hands and places the starting generals on the authentic map', () => {
+test('setup opens Prussia\'s stage with a draw; other nations draw on their own stage', () => {
   const s = fresh();
   assert.equal(s.pieces['friedrich']?.node, 'berlin');
   assert.equal(s.pieces['daun']?.node, 'brunn');
-  assert.equal(s.pieces['richelieu']?.node, 'iserlohn');
-  assert.equal(s.hands.prussia.length, 7, 'Prussia draws its 7-card allotment');
-  assert.equal(s.hands.austria.length, 5);
+  assert.equal(s.hands.prussia.length, 7, 'Prussia draws its 7-card allotment at setup');
+  assert.equal(s.hands.austria.length, 0, 'Austria has not drawn yet');
+  assert.equal(s.decks.prussia.length, 43, '50-card deck minus the 7 drawn');
+  assert.equal(s.decks.austria.length, 50, 'Austria\'s deck is untouched');
   assert.equal(s.activeNationIndex, 0, 'Prussia acts first');
+});
+
+test('a nation draws its allotment at the start of its stage', () => {
+  let s = fresh();
+  assert.equal(s.hands.hanover.length, 0);
+  s = act(s, { type: 'endNationTurn', by: 'p0' }); // advance to Hanover's stage
+  assert.equal(s.hands.hanover.length, 2, 'Hanover draws its 1+1 allotment');
+  assert.equal(s.decks.hanover.length, 48);
+});
+
+test('a nation\'s cards are conserved across hand + deck + discard', () => {
+  const s = fresh();
+  const total = (n: 'prussia') => s.hands[n].length + s.decks[n].length + s.discards[n].length;
+  assert.equal(total('prussia'), 50);
 });
 
 test('an outnumbered attacker who concedes takes the gap as casualties and retreats', () => {

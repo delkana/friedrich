@@ -43,8 +43,8 @@ assert(troopsOf(a.st.view, 'friedrich') > 0, 'Fred sees his own Prussian troops'
 assert(troopsOf(b.st.view, 'friedrich') === -1, "Theresa cannot see Prussia's troops");
 assert(troopsOf(b.st.view, 'daun') > 0, 'Theresa sees her own Austrian troops');
 assert(troopsOf(a.st.view, 'daun') === -1, "Fred cannot see Austria's troops");
-assert(a.st.view.hands.prussia.length === 7 && a.st.view.hands.austria.length === 0, "Fred sees only his own hand");
-assert(b.st.view.hands.austria.length === 5 && b.st.view.hands.prussia.length === 0, "Theresa sees only her own hand");
+assert(a.st.view.hands.prussia.length === 7 && a.st.view.hands.austria.length === 0, "Fred sees his own drawn hand, not Austria's");
+assert(b.st.view.hands.austria.length === 0 && b.st.view.hands.prussia.length === 0, "Theresa sees no hidden hands (Austria draws on its own stage)");
 
 // authorization: it is Prussia's stage (index 0)
 b.send({ t: 'action', action: { type: 'move', pieceId: 'keith', to: 'meissen' } }); // Theresa can't move Prussia

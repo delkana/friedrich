@@ -109,6 +109,16 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
     [combat.attackerNation]: duel.attacker.hand,
     [combat.defenderNation]: duel.defender.hand,
   };
+  // cards played in the battle go to each nation's discard pile
+  const playedBy = (nation: Nation, remaining: readonly TacticalCard[]): TacticalCard[] => {
+    const rem = new Set(remaining.map((c) => c.id));
+    return state.hands[nation].filter((c) => !rem.has(c.id));
+  };
+  const discards = {
+    ...state.discards,
+    [combat.attackerNation]: [...state.discards[combat.attackerNation], ...playedBy(combat.attackerNation, duel.attacker.hand)],
+    [combat.defenderNation]: [...state.discards[combat.defenderNation], ...playedBy(combat.defenderNation, duel.defender.hand)],
+  };
   const pieces: PieceMap = { ...state.pieces };
   const log = [...state.log];
 
@@ -137,7 +147,56 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
     }
   }
 
-  return { ...state, version: state.version + 1, pieces, hands, combat: null, log };
+  return { ...state, version: state.version + 1, pieces, hands, discards, combat: null, log };
+}
+
+// ---- card draw + deck cycling --------------------------------------------
+
+/** Draw `count` cards, reshuffling the discard pile into the deck when it runs dry. */
+function drawCards(
+  rng: FriedrichState['rng'],
+  deck: readonly TacticalCard[],
+  discard: readonly TacticalCard[],
+  count: number,
+): { rng: FriedrichState['rng']; deck: TacticalCard[]; discard: TacticalCard[]; drawn: TacticalCard[] } {
+  let d = [...deck];
+  let disc = [...discard];
+  let r = rng;
+  const drawn: TacticalCard[] = [];
+  for (let i = 0; i < count; i++) {
+    if (d.length === 0) {
+      if (disc.length === 0) break; // truly out of cards
+      const sh = rngShuffle(r, disc);
+      r = sh.r;
+      d = sh.items;
+      disc = [];
+    }
+    drawn.push(d.shift()!);
+  }
+  return { rng: r, deck: d, discard: disc, drawn };
+}
+
+/** The first phase of a nation's stage: draw its Tactical Card allotment. */
+function beginStage(state: FriedrichState, nation: Nation): FriedrichState {
+  const allot = state.drawAllot[nation] ?? 0;
+  if (allot <= 0) return state;
+  const res = drawCards(state.rng, state.decks[nation], state.discards[nation], allot);
+  let hand: TacticalCard[] = [...state.hands[nation], ...res.drawn];
+  let discard = res.discard;
+  const log = [`${nation} draws ${res.drawn.length} card(s).`];
+  if (nation === 'france' && hand.length > 0) {
+    discard = [...discard, hand[hand.length - 1]!]; // France discards one face-down
+    hand = hand.slice(0, -1);
+    log.push('France discards a card face-down.');
+  }
+  return {
+    ...state,
+    rng: res.rng,
+    decks: { ...state.decks, [nation]: res.deck },
+    discards: { ...state.discards, [nation]: discard },
+    hands: { ...state.hands, [nation]: hand },
+    log: [...state.log, ...log],
+  };
 }
 
 // ---- end-game: conquest, Cards of Fate, victory --------------------------
@@ -201,15 +260,28 @@ function drawFate(state: FriedrichState): FriedrichState {
       s = retirePrussianGeneral(eliminateNation(s, 'sweden'));
       break;
     case 'america':
-      s = eliminateNation(s, 'france'); // simplified: removes France (the "India first" nuance is TODO)
+      s = reduceDraw(eliminateNation(s, 'france'), 'hanover', 1); // (India-first nuance simplified)
       break;
     case 'india':
+      s = reduceDraw(reduceDraw(s, 'austria', 4), 'france', 3);
+      break;
     case 'lordBute':
+      s = reduceDraw(s, 'prussia', 5);
+      break;
     case 'poems':
+      s = reduceDraw(s, 'prussia', 4);
+      break;
     case 'minor':
-      break; // draw-count effects need per-stage card draw (a later milestone)
+      break;
   }
   return s;
+}
+
+/** Permanently lower a nation's card draw (never raises it). */
+function reduceDraw(state: FriedrichState, nation: Nation, value: number): FriedrichState {
+  const cur = state.drawAllot[nation] ?? 0;
+  if (value >= cur) return state;
+  return { ...state, drawAllot: { ...state.drawAllot, [nation]: value } };
 }
 
 // ---- game definition -----------------------------------------------------
@@ -224,11 +296,17 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       throw new IllegalActionError(`Friedrich supports ${this.minPlayers}-${this.maxPlayers} players.`);
     }
     let rng = seedFromString(seed);
+    // each nation gets a shuffled 50-card deck; hands start empty and are drawn
+    // at the start of each nation's stage
+    const decks: Record<Nation, TacticalCard[]> = {} as Record<Nation, TacticalCard[]>;
     const hands: Record<Nation, TacticalCard[]> = {} as Record<Nation, TacticalCard[]>;
+    const discards: Record<Nation, TacticalCard[]> = {} as Record<Nation, TacticalCard[]>;
     for (const nation of NATION_ORDER) {
       const shuffled = rngShuffle(rng, buildTacticalDeck(nation));
       rng = shuffled.r;
-      hands[nation] = shuffled.items.slice(0, BASE_DRAW[nation]);
+      decks[nation] = shuffled.items;
+      hands[nation] = [];
+      discards[nation] = [];
     }
     const fate = buildFateDeck(rng);
     rng = fate.rng;
@@ -237,7 +315,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
     const trains: Record<string, Train> = {};
     for (const t of INITIAL_TRAINS) trains[t.id] = t;
 
-    return {
+    const base: FriedrichState = {
       rng,
       version: 0,
       players: [...players],
@@ -247,6 +325,9 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       pieces,
       trains,
       hands,
+      decks,
+      discards,
+      drawAllot: { ...BASE_DRAW },
       stageMoves: {},
       combat: null,
       conquered: {},
@@ -256,6 +337,8 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       winner: null,
       log: [`Game created with ${players.length} player(s). Prussia to act.`],
     };
+    // Prussia's stage opens immediately — draw its cards
+    return beginStage(base, NATION_ORDER[0]!);
   },
 
   reducer(state: FriedrichState, action: FriedrichAction): FriedrichState {
@@ -454,6 +537,8 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         if (wrapped && finishedRound >= 6 && next.fateDeck.length > 0) {
           next = drawFate(next);
         }
+        // the new nation's stage opens with its card draw
+        next = beginStage(next, NATION_ORDER[idx]!);
         return withWinner(next);
       }
 
@@ -467,10 +552,13 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
   redact(state: FriedrichState, viewer: PlayerId): FriedrichState {
     const controlled = nationsControlledBy(state, viewer);
 
-    // hide hands of nations the viewer doesn't control
+    // hide hands of nations the viewer doesn't control; hide every draw deck's
+    // order (a player must not see their own future draws)
     const hands = { ...state.hands };
+    const decks = { ...state.decks };
     for (const nation of NATION_ORDER) {
       if (!controlled.has(nation)) hands[nation] = [];
+      decks[nation] = [];
     }
 
     // hide secret troop counts on pieces the viewer doesn't own (-1 = hidden)
@@ -495,7 +583,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       };
     }
 
-    return { ...state, hands, pieces, combat };
+    return { ...state, hands, decks, pieces, combat };
   },
 };
 

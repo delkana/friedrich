@@ -447,11 +447,13 @@ function renderChrome(): void {
   banner.querySelector('.who')!.textContent = NATION_LABEL[nation];
 
   const youTag = document.getElementById('you-tag')!;
+  const handCount = (nations: Nation[]) => nations.reduce((sum, nat) => sum + (state.hands[nat]?.length ?? 0), 0);
   if (mode === 'net') {
-    const mine = [...(myNations() ?? new Set<Nation>())].map((n) => NATION_LABEL[n]).join(', ');
-    youTag.textContent = mine ? `You: ${mine}` : 'Spectator';
+    const nats = [...(myNations() ?? new Set<Nation>())];
+    const mine = nats.map((n) => NATION_LABEL[n]).join(', ');
+    youTag.textContent = mine ? `You: ${mine} · ${handCount(nats)} cards` : 'Spectator';
   } else {
-    youTag.textContent = 'Hotseat';
+    youTag.textContent = `Hotseat · ${NATION_LABEL[nation]}: ${state.hands[nation]?.length ?? 0} cards`;
   }
 
   const log = document.getElementById('log-list')!;
