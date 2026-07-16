@@ -5,7 +5,13 @@ import { IllegalActionError } from '@friedrich/engine';
 import { Friedrich } from './game.js';
 import { friedrichMap } from './map-data.js';
 import { checkVictory, objectivesOf } from './victory.js';
+import { inSupply } from './supply.js';
 import type { FriedrichState, FriedrichAction } from './state.js';
+
+const emptyNeighbour = (s: FriedrichState, node: string): string =>
+  [...friedrichMap.adjacency.get(node)!].find(
+    (n) => !Object.values(s.pieces).some((p) => p.node === n) && !Object.values(s.trains).some((t) => t.node === n),
+  )!;
 
 const PLAYERS = ['p0', 'p1', 'p2', 'p3'];
 const fresh = (): FriedrichState => Friedrich.setup('seed-1', PLAYERS);
@@ -151,6 +157,46 @@ test('the Clock of Fate starts drawing at the end of turn 6', () => {
 test('no actions are allowed once the war is decided', () => {
   const s: FriedrichState = { ...fresh(), winner: { side: 'defender' } };
   assert.throws(() => act(s, { type: 'endNationTurn', by: 'p0' }), IllegalActionError);
+});
+
+test('every starting general begins in supply', () => {
+  const s = fresh();
+  for (const g of Object.values(s.pieces)) {
+    assert.ok(inSupply(s, g), `${g.id} at ${g.node} starts out of supply`);
+  }
+});
+
+test('a general standing on its own supply train is in supply', () => {
+  const s = fresh();
+  const moved: FriedrichState = { ...s, pieces: { ...s.pieces, fermor: { ...s.pieces['fermor']!, node: 'torun' } } };
+  assert.ok(inSupply(moved, moved.pieces['fermor']!));
+});
+
+test('a general cut off from supply flips face-down, then is destroyed next supply phase', () => {
+  // strand Fermor deep in the west, far from any Russian train and not in a home country
+  let s: FriedrichState = { ...fresh(), pieces: { ...fresh().pieces, fermor: { ...fresh().pieces['fermor']!, node: 'kassel' } } };
+  assert.equal(inSupply(s, s.pieces['fermor']!), false);
+
+  for (let i = 0; i < 3; i++) s = act(s, { type: 'endNationTurn', by: 'p0' }); // through Russia's first supply phase
+  assert.equal(s.pieces['fermor']?.faceUp, false, 'cut off → face-down (no loss yet)');
+
+  for (let i = 0; i < 7; i++) s = act(s, { type: 'endNationTurn', by: 'p0' }); // to Russia's next supply phase
+  assert.equal(s.pieces['fermor'], undefined, 'still cut off → destroyed');
+});
+
+test('a general entering a city captures the enemy supply train there', () => {
+  const nbr = emptyNeighbour(fresh(), 'torun'); // Torun holds a Russian train
+  let s = placed(fresh(), { keith: nbr });
+  s = act(s, { type: 'move', by: 'p0', pieceId: 'keith', to: 'torun' });
+  assert.equal(s.pieces['keith']?.node, 'torun');
+  assert.ok(!Object.values(s.trains).some((t) => t.node === 'torun'), 'the Russian train is captured');
+});
+
+test('a supply train can be moved on its turn', () => {
+  let s = fresh();
+  const nbr = emptyNeighbour(s, 'juterbog');
+  s = act(s, { type: 'moveTrain', by: 'p0', trainId: 'sup-prussia-1', to: nbr });
+  assert.equal(s.trains['sup-prussia-1']?.node, nbr);
 });
 
 test('ending a nation stage advances to the next nation in order', () => {

@@ -1,6 +1,6 @@
 import type { BaseState, BaseAction, PlayerId, TacticalCard, ReservePlay, DuelState } from '@friedrich/engine';
 import type { Role, Nation } from './powers.js';
-import type { Piece } from './pieces.js';
+import type { Piece, Train } from './pieces.js';
 import type { FateCard } from './fate.js';
 
 /** How the game ended. `defender` = Frederick/Prussia surviving the war. */
@@ -30,6 +30,8 @@ export interface FriedrichState extends BaseState {
   readonly activeNationIndex: number;
   /** All generals on the board, keyed by piece id. */
   readonly pieces: Readonly<Record<string, Piece>>;
+  /** Supply trains on the board, keyed by train id. */
+  readonly trains: Readonly<Record<string, Train>>;
   /** Each nation's Tactical Card hand. */
   readonly hands: Readonly<Record<Nation, readonly TacticalCard[]>>;
   /**
@@ -56,6 +58,7 @@ export interface FriedrichState extends BaseState {
 
 export type FriedrichAction =
   | ({ type: 'move'; pieceId: string; to: string } & BaseAction)
+  | ({ type: 'moveTrain'; trainId: string; to: string } & BaseAction)
   | ({ type: 'undoMove'; pieceId: string } & BaseAction)
   | ({ type: 'attack'; attackerId: string; defenderId: string } & BaseAction)
   | ({ type: 'combatPlay'; cardId: string; reserve?: ReservePlay } & BaseAction)

@@ -43,9 +43,41 @@ export const INITIAL_PIECES: readonly Omit<Piece, 'faceUp'>[] = [
   { id: 'daun', nation: 'austria', rank: 1, node: 'brunn', troops: 8 },
   { id: 'browne', nation: 'austria', rank: 2, node: 'melnik', troops: 6 },
   { id: 'laudon', nation: 'austria', rank: 4, node: 'olmutz', troops: 5 },
-  { id: 'fermor', nation: 'russia', rank: 2, node: 'konigsberg', troops: 6 },
+  { id: 'fermor', nation: 'russia', rank: 2, node: 'warszawa', troops: 6 },
   { id: 'richelieu', nation: 'france', rank: 1, node: 'iserlohn', troops: 6 },
   { id: 'soubise', nation: 'france', rank: 2, node: 'fulda', troops: 5 },
 ];
 
 export const MAX_STACK = 3;
+
+/**
+ * A supply train (wooden cube on the board). Cannot fight or hold objectives;
+ * it is the mobile supply source that keeps a nation's generals in supply within
+ * six cities. Captured (removed) when an enemy general enters its city.
+ */
+export interface Train {
+  readonly id: string;
+  readonly nation: Nation;
+  readonly node: NodeId;
+}
+
+/** Supply trains at their historical start cities (per the army sheet). */
+export const INITIAL_TRAINS: readonly Train[] = [
+  { id: 'sup-prussia-1', nation: 'prussia', node: 'juterbog' },
+  { id: 'sup-prussia-2', nation: 'prussia', node: 'grunberg' },
+  { id: 'sup-hanover-1', nation: 'hanover', node: 'hannover' },
+  { id: 'sup-russia-1', nation: 'russia', node: 'torun' },
+  { id: 'sup-russia-2', nation: 'russia', node: 'warszawa' },
+  { id: 'sup-sweden-1', nation: 'sweden', node: 'wismar' },
+  { id: 'sup-austria-1', nation: 'austria', node: 'beraun' },
+  { id: 'sup-austria-2', nation: 'austria', node: 'pardubitz' },
+  { id: 'sup-imperial-1', nation: 'imperial', node: 'erlangen' },
+  { id: 'sup-france-1', nation: 'france', node: 'koblenz' },
+  { id: 'sup-france-2', nation: 'france', node: 'gemunden' },
+];
+
+/** How far a supply line can be traced (in cities). */
+export const SUPPLY_RANGE = 6;
+/** Movement allowance for a supply train (cities); +1 entirely on main roads. */
+export const TRAIN_MOVE = 2;
+export const TRAIN_MOVE_MAIN = 3;

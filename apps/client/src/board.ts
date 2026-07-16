@@ -56,6 +56,7 @@ const BOARD_H = 4000;
 
 let state: FriedrichState = Friedrich.setup('board-demo', ['A', 'B', 'C', 'D']);
 let selected: string | null = null;
+let selectedTrain: string | null = null;
 let pendingReserve: string | null = null;
 const view = { x: 0, y: 0, w: BOARD_W, h: BOARD_H }; // viewBox
 
@@ -103,7 +104,24 @@ function dispatch(action: WithoutBy<FriedrichAction>): void {
 
 function moveTargets(): Set<string> {
   const targets = new Set<string>();
-  if (!selected || state.combat) return targets;
+  if (state.combat) return targets;
+
+  // a selected supply train: range 2 cities (3 all-main), no enemy destinations
+  if (selectedTrain) {
+    const t = state.trains[selectedTrain];
+    if (!t) return targets;
+    const occ = new Set<string>([...occupied(), ...Object.values(state.trains).map((x) => x.node)]);
+    const reach = reachableNodes(friedrichMap, t.node, occ, { maxSteps: 2, maxStepsMainRoad: 3 });
+    for (const node of reach.keys()) {
+      const side = sideOfNation(t.nation);
+      const enemy = piecesAt(node).some((p) => sideOfNation(p.nation) !== side) ||
+        Object.values(state.trains).some((x) => x.node === node && sideOfNation(x.nation) !== side);
+      if (!enemy) targets.add(node);
+    }
+    return targets;
+  }
+
+  if (!selected) return targets;
   const sel = state.pieces[selected];
   if (!sel) return targets;
   if (state.stageMoves[selected] !== undefined) return targets; // already moved this stage
@@ -115,6 +133,9 @@ function moveTargets(): Set<string> {
   }
   return targets;
 }
+
+const sideOfNation = (n: Nation): 'defender' | 'attacker' =>
+  n === 'prussia' || n === 'hanover' ? 'defender' : 'attacker';
 
 function boardInner(): string {
   const targets = moveTargets();
@@ -189,23 +210,37 @@ function boardInner(): string {
     })
     .join('');
 
+  // supply trains (wagons): sit to the lower-left of a city
+  const trains = Object.values(state.trains)
+    .map((t) => {
+      const n = friedrichMap.nodes.get(t.node);
+      if (!n) return '';
+      const canSelect = t.nation === activeNation() && canControl(t.nation) && !state.combat;
+      const sc = t.id === selectedTrain ? ' sel' : '';
+      return `<g class="train${sc}" data-train="${t.id}" style="${canSelect ? '' : 'cursor:default'}">
+        <rect x="${n.x - 66}" y="${n.y + 12}" width="40" height="26" rx="4" fill="${NATION_COLOR[t.nation]}" stroke="#1c140a" stroke-width="4"/>
+        <circle cx="${n.x - 58}" cy="${n.y + 40}" r="6" fill="#1c140a"/><circle cx="${n.x - 34}" cy="${n.y + 40}" r="6" fill="#1c140a"/></g>`;
+    })
+    .join('');
+
   const pieces = [...friedrichMap.nodes.values()]
     .flatMap((n) => piecesAt(n.id).map((p, i) => {
       const px = n.x + 54;
       const py = n.y - 30 + i * 46;
       const canSelect = p.nation === activeNation() && canControl(p.nation) && !state.combat;
       const isTarget = sel && areEnemies(sel.nation, p.nation) && areAdjacent(friedrichMap, sel.node, p.node);
-      const cls = [p.id === selected ? 'sel' : '', isTarget ? 'target' : ''].join(' ');
+      const cls = [p.id === selected ? 'sel' : '', isTarget ? 'target' : '', p.faceUp ? '' : 'facedown'].join(' ');
       const troops = p.troops === HIDDEN_TROOPS ? '?' : String(p.troops);
+      const cut = p.faceUp ? '' : `<circle cx="${px + 22}" cy="${py - 22}" r="10" fill="#9e2b25" stroke="#1c140a" stroke-width="3"/>`;
       return `<g class="piece ${cls}" data-piece="${p.id}" style="${canSelect || isTarget ? '' : 'cursor:default'}">
         <circle cx="${px}" cy="${py}" r="52" fill="none" pointer-events="all"/>
         <circle class="ring" cx="${px}" cy="${py}" r="34"/>
         <circle cx="${px}" cy="${py}" r="25" fill="${NATION_COLOR[p.nation]}"/>
-        <text class="ptext" x="${px}" y="${py + 11}">${troops}</text></g>`;
+        <text class="ptext" x="${px}" y="${py + 11}">${troops}</text>${cut}</g>`;
     }))
     .join('');
 
-  return defs + ground + washes + sectors + stamps + edges + ghosts + nodes + pieces;
+  return defs + ground + washes + sectors + stamps + edges + ghosts + nodes + trains + pieces;
 }
 
 // ---- pan / zoom ----------------------------------------------------------
@@ -430,11 +465,13 @@ function renderChrome(): void {
     ? 'Battle underway…'
     : !myTurn
       ? `Waiting for ${NATION_LABEL[nation]}…`
-      : selMoved
-        ? `${selected} has moved — undo, or choose another general`
-        : selected
-          ? `${selected} selected — choose a destination or foe`
-          : `Your move — choose a ${NATION_LABEL[nation]} general`;
+      : selectedTrain
+        ? 'Supply train selected — choose a destination'
+        : selMoved
+          ? `${selected} has moved — undo, or choose another general`
+          : selected
+            ? `${selected} selected — choose a destination or foe`
+            : `Your move — choose a ${NATION_LABEL[nation]} general`;
   (document.getElementById('btn-end') as HTMLButtonElement).disabled = !!state.combat || !myTurn;
   const undoBtn = document.getElementById('btn-undo') as HTMLButtonElement;
   undoBtn.hidden = !(selMoved && !state.combat);
@@ -486,16 +523,31 @@ function onBoardClick(e: Event): void {
   const target = e.target as Element;
   const pieceEl = target.closest('[data-piece]');
   if (pieceEl) return onPieceClick(pieceEl.getAttribute('data-piece')!);
+  const trainEl = target.closest('[data-train]');
+  if (trainEl) return onTrainClick(trainEl.getAttribute('data-train')!);
   const nodeEl = target.closest('[data-node]');
   if (nodeEl) return onNodeClick(nodeEl.getAttribute('data-node')!);
   deselect(); // clicked empty map
 }
 
 function deselect(): void {
-  if (!selected) return;
+  if (!selected && !selectedTrain) return;
   selected = null;
+  selectedTrain = null;
   renderMap();
   renderChrome();
+}
+
+function onTrainClick(trainId: string): void {
+  const t = state.trains[trainId];
+  if (!t) return;
+  if (t.nation === activeNation() && canControl(t.nation)) {
+    selectedTrain = selectedTrain === trainId ? null : trainId;
+    selected = null;
+    renderMap(); renderChrome();
+  } else {
+    deselect();
+  }
 }
 
 /** Right-click clears the current selection (and suppresses the browser menu). */
@@ -505,6 +557,16 @@ function onBoardContextMenu(e: MouseEvent): void {
 }
 
 function onNodeClick(node: string): void {
+  if (selectedTrain) {
+    if (moveTargets().has(node)) {
+      const trainId = selectedTrain;
+      selectedTrain = null;
+      dispatch({ type: 'moveTrain', trainId, to: node });
+    } else {
+      deselect();
+    }
+    return;
+  }
   if (!selected) return;
   if (moveTargets().has(node)) {
     const pieceId = selected;
@@ -521,6 +583,7 @@ function onPieceClick(pieceId: string): void {
   // click one of your own active generals → select / toggle off
   if (p.nation === activeNation() && canControl(p.nation)) {
     selected = selected === pieceId ? null : pieceId;
+    selectedTrain = null;
     renderMap(); renderChrome();
     return;
   }

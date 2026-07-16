@@ -14,10 +14,21 @@ import {
   type TacticalCard,
 } from '@friedrich/engine';
 import { NATION_ORDER, BASE_DRAW, type Role, type Nation } from './powers.js';
-import { INITIAL_PIECES, MAX_STACK, areEnemies, sideOf, type Piece } from './pieces.js';
+import {
+  INITIAL_PIECES,
+  INITIAL_TRAINS,
+  MAX_STACK,
+  TRAIN_MOVE,
+  TRAIN_MOVE_MAIN,
+  areEnemies,
+  sideOf,
+  type Piece,
+  type Train,
+} from './pieces.js';
 import { friedrichMap } from './map-data.js';
 import { buildFateDeck, FATE_LABEL, type FateCard } from './fate.js';
 import { checkVictory } from './victory.js';
+import { runSupplyPhase } from './supply.js';
 import type { FriedrichState, FriedrichAction, CombatSub, Winner } from './state.js';
 
 type PieceMap = Record<string, Piece>;
@@ -223,6 +234,8 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
     rng = fate.rng;
     const pieces: PieceMap = {};
     for (const p of INITIAL_PIECES) pieces[p.id] = { ...p, faceUp: true };
+    const trains: Record<string, Train> = {};
+    for (const t of INITIAL_TRAINS) trains[t.id] = t;
 
     return {
       rng,
@@ -232,6 +245,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       turn: 1,
       activeNationIndex: 0,
       pieces,
+      trains,
       hands,
       stageMoves: {},
       combat: null,
@@ -271,12 +285,24 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         if (there.length >= MAX_STACK) throw new IllegalActionError('That city is already stacked to the limit.');
 
         const pieces = { ...state.pieces, [piece.id]: { ...piece, node: action.to } };
+        const dest = friedrichMap.nodes.get(action.to)!;
+        const log = [`${piece.id} → ${action.to}.`];
+
+        // capture an enemy supply train standing in the entered city
+        let trains = state.trains;
+        const enemyTrain = Object.values(state.trains).find(
+          (t) => t.node === action.to && sideOf(t.nation) !== sideOf(piece.nation),
+        );
+        if (enemyTrain) {
+          const tr = { ...state.trains };
+          delete tr[enemyTrain.id];
+          trains = tr;
+          log.push(`${piece.nation} captures a ${enemyTrain.nation} supply train at ${dest.name}!`);
+        }
 
         // objective conquest: an attacker seizes its own objective by occupying
         // it; a defender re-takes it by moving onto it
         let conquered = state.conquered;
-        const dest = friedrichMap.nodes.get(action.to)!;
-        const log = [`${piece.id} → ${action.to}.`];
         if (dest.objectiveFor) {
           if (piece.nation === dest.objectiveFor) {
             conquered = { ...conquered, [action.to]: piece.nation };
@@ -293,10 +319,42 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           ...state,
           version: state.version + 1,
           pieces,
+          trains,
           conquered,
           stageMoves: { ...state.stageMoves, [piece.id]: piece.node },
           log: [...state.log, ...log],
         });
+      }
+
+      case 'moveTrain': {
+        if (state.combat) throw new IllegalActionError('Finish the current battle first.');
+        const train = state.trains[action.trainId];
+        if (!train) throw new IllegalActionError('No such supply train.');
+        if (train.nation !== activeNationOf(state)) throw new IllegalActionError(`It is ${activeNationOf(state)}'s turn.`);
+
+        // trains move 2 cities (3 entirely on main roads), no jumping over pieces
+        const occupied = new Set<string>([
+          ...Object.values(state.pieces).map((p) => p.node),
+          ...Object.values(state.trains).map((t) => t.node),
+        ]);
+        const reach = reachableNodes(friedrichMap, train.node, occupied, {
+          maxSteps: TRAIN_MOVE,
+          maxStepsMainRoad: TRAIN_MOVE_MAIN,
+        });
+        if (!reach.has(action.to)) throw new IllegalActionError('That city is out of the train\'s range.');
+        // a train may not enter a city held by an enemy piece
+        const side = sideOf(train.nation);
+        const enemyThere =
+          piecesAtNode(state.pieces, action.to).some((p) => sideOf(p.nation) !== side) ||
+          Object.values(state.trains).some((t) => t.node === action.to && sideOf(t.nation) !== side);
+        if (enemyThere) throw new IllegalActionError('An enemy holds that city.');
+
+        return {
+          ...state,
+          version: state.version + 1,
+          trains: { ...state.trains, [train.id]: { ...train, node: action.to } },
+          log: [...state.log, `${train.nation} supply train → ${action.to}.`],
+        };
       }
 
       case 'undoMove': {
@@ -366,6 +424,15 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
 
       case 'endNationTurn': {
         if (state.combat) throw new IllegalActionError('Finish the current battle first.');
+
+        // the ending nation's supply phase: recover / cut off / annihilate
+        const ending = activeNationOf(state);
+        const supply = runSupplyPhase(state, ending);
+        const supplied: FriedrichState = supply.log.length
+          ? { ...state, pieces: supply.pieces, log: [...state.log, ...supply.log] }
+          : state;
+        state = supplied;
+
         // advance to the next nation still in the war, detecting a full round
         let idx = state.activeNationIndex;
         let wrapped = false;
