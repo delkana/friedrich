@@ -195,6 +195,7 @@ function boardInner(): string {
       const cls = [p.id === selected ? 'sel' : '', isTarget ? 'target' : ''].join(' ');
       const troops = p.troops === HIDDEN_TROOPS ? '?' : String(p.troops);
       return `<g class="piece ${cls}" data-piece="${p.id}" style="${canSelect || isTarget ? '' : 'cursor:default'}">
+        <circle cx="${px}" cy="${py}" r="52" fill="none" pointer-events="all"/>
         <circle class="ring" cx="${px}" cy="${py}" r="34"/>
         <circle cx="${px}" cy="${py}" r="25" fill="${NATION_COLOR[p.nation]}"/>
         <text class="ptext" x="${px}" y="${py + 11}">${troops}</text></g>`;
@@ -435,6 +436,20 @@ function onBoardClick(e: Event): void {
   if (pieceEl) return onPieceClick(pieceEl.getAttribute('data-piece')!);
   const nodeEl = target.closest('[data-node]');
   if (nodeEl) return onNodeClick(nodeEl.getAttribute('data-node')!);
+  deselect(); // clicked empty map
+}
+
+function deselect(): void {
+  if (!selected) return;
+  selected = null;
+  renderMap();
+  renderChrome();
+}
+
+/** Right-click clears the current selection (and suppresses the browser menu). */
+function onBoardContextMenu(e: MouseEvent): void {
+  e.preventDefault();
+  if (!state.combat) deselect();
 }
 
 function onNodeClick(node: string): void {
@@ -443,24 +458,30 @@ function onNodeClick(node: string): void {
     const pieceId = selected;
     selected = null;
     dispatch({ type: 'move', pieceId, to: node });
+  } else {
+    deselect(); // clicked an invalid destination
   }
 }
 
 function onPieceClick(pieceId: string): void {
   const p = state.pieces[pieceId];
   if (!p) return;
+  // click one of your own active generals → select / toggle off
   if (p.nation === activeNation() && canControl(p.nation)) {
     selected = selected === pieceId ? null : pieceId;
     renderMap(); renderChrome();
     return;
   }
+  // with a general selected, click an adjacent enemy → attack it
   if (selected) {
     const sel = state.pieces[selected];
     if (sel && areEnemies(sel.nation, p.nation) && areAdjacent(friedrichMap, sel.node, p.node)) {
       const attackerId = selected;
       selected = null;
       dispatch({ type: 'attack', attackerId, defenderId: pieceId });
+      return;
     }
+    deselect(); // clicked a piece that isn't a valid target
   }
 }
 
@@ -536,6 +557,7 @@ function mount(): void {
     <div id="lobby"><div id="lobby-card"></div></div>`;
 
   document.getElementById('board-root')!.addEventListener('click', onBoardClick);
+  document.getElementById('map-view')!.addEventListener('contextmenu', onBoardContextMenu);
   document.getElementById('hud')!.addEventListener('click', onHudClick);
   document.getElementById('lobby')!.addEventListener('click', onLobbyClick);
   setupPanZoom();
