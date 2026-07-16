@@ -1,0 +1,31 @@
+{
+  "name": "friedrich",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Online engine for the card-driven wargame Friedrich (Richard Sivél / Histogame).",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @friedrich/server & npm run dev --workspace @friedrich/client",
+    "dev:server": "npm run dev --workspace @friedrich/server",
+    "dev:client": "npm run dev --workspace @friedrich/client",
+    "build": "tsc -b && npm run build --workspace @friedrich/client",
+    "start": "node apps/server/dist/index.js",
+    "typecheck": "tsc -b",
+    "test": "node --import tsx --test \"packages/**/src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "esbuild@0.25.12": true
+  }
+}

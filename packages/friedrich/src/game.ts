@@ -1,0 +1,362 @@
+import {
+  IllegalActionError,
+  seedFromString,
+  rngShuffle,
+  buildTacticalDeck,
+  reachableNodes,
+  areAdjacent,
+  hopDistance,
+  startDuel,
+  playCard,
+  pass,
+  type GameDefinition,
+  type PlayerId,
+  type TacticalCard,
+} from '@friedrich/engine';
+import { NATION_ORDER, BASE_DRAW, type Role, type Nation } from './powers.js';
+import { INITIAL_PIECES, MAX_STACK, areEnemies, type Piece } from './pieces.js';
+import { friedrichMap } from './map-data.js';
+import type { FriedrichState, FriedrichAction, CombatSub } from './state.js';
+
+type PieceMap = Record<string, Piece>;
+
+// ---- helpers -------------------------------------------------------------
+
+function assignSeats(players: readonly PlayerId[]): Record<PlayerId, Role[]> {
+  const seatRoles: Role[][] =
+    players.length === 3
+      ? [['frederick'], ['mariaTheresa'], ['elisabeth', 'pompadour']]
+      : [['frederick'], ['mariaTheresa'], ['elisabeth'], ['pompadour']];
+  const seats: Record<PlayerId, Role[]> = {};
+  players.forEach((p, i) => {
+    seats[p] = seatRoles[i]!;
+  });
+  return seats;
+}
+
+const activeNationOf = (s: FriedrichState): Nation => NATION_ORDER[s.activeNationIndex]!;
+
+function occupiedNodes(pieces: PieceMap): Set<string> {
+  const set = new Set<string>();
+  for (const p of Object.values(pieces)) set.add(p.node);
+  return set;
+}
+
+const piecesAtNode = (pieces: PieceMap, node: string): Piece[] =>
+  Object.values(pieces).filter((p) => p.node === node);
+
+/** Same-nation generals stacked at a node, ordered by command rank (1 first). */
+const stackAt = (pieces: PieceMap, node: string, nation: Nation): Piece[] =>
+  piecesAtNode(pieces, node)
+    .filter((p) => p.nation === nation)
+    .sort((a, b) => a.rank - b.rank);
+
+/** Remove `casualties` troops from a stack, lowest command (highest rank #) first. */
+function applyCasualties(pieces: PieceMap, stack: readonly Piece[], casualties: number): void {
+  let remaining = casualties;
+  for (const p of [...stack].sort((a, b) => b.rank - a.rank)) {
+    if (remaining <= 0) break;
+    const cur = pieces[p.id];
+    if (!cur) continue;
+    const take = Math.min(remaining, cur.troops);
+    remaining -= take;
+    const left = cur.troops - take;
+    if (left <= 0) delete pieces[p.id];
+    else pieces[p.id] = { ...cur, troops: left };
+  }
+}
+
+/**
+ * SIMPLIFIED retreat: pick an empty city reachable within `distance` cities
+ * (no passing through pieces) that is as far as possible from the winner. The
+ * exact rule (retreat the full distance, winner picks the path, never re-enter a
+ * city) is approximated here; returns null if nowhere to go.
+ */
+function retreatNode(pieces: PieceMap, from: string, winner: string, distance: number): string | null {
+  const occ = occupiedNodes(pieces);
+  const reach = reachableNodes(friedrichMap, from, occ, { maxSteps: distance, maxStepsMainRoad: distance });
+  let best: string | null = null;
+  let bestDist = -1;
+  for (const node of reach.keys()) {
+    if (occ.has(node)) continue; // retreat only to an empty city
+    const d = hopDistance(friedrichMap, node, winner);
+    if (d > bestDist) {
+      bestDist = d;
+      best = node;
+    }
+  }
+  return best;
+}
+
+function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichState {
+  const duel = combat.duel;
+  const r = duel.result!;
+  const hands = {
+    ...state.hands,
+    [combat.attackerNation]: duel.attacker.hand,
+    [combat.defenderNation]: duel.defender.hand,
+  };
+  const pieces: PieceMap = { ...state.pieces };
+  const log = [...state.log];
+
+  if (r.outcome === 'tie') {
+    log.push('Battle tied — both sides hold.');
+  } else {
+    const loserNation = r.loser === 'attacker' ? combat.attackerNation : combat.defenderNation;
+    const loserNode = r.loser === 'attacker' ? combat.attackerNode : combat.defenderNode;
+    const winnerNode = r.loser === 'attacker' ? combat.defenderNode : combat.attackerNode;
+    const stack = stackAt(pieces, loserNode, loserNation);
+
+    if (r.loserEliminated) {
+      for (const p of stack) delete pieces[p.id];
+      log.push(`${loserNation} at ${loserNode} was wiped out (${r.casualties} lost).`);
+    } else {
+      applyCasualties(pieces, stack, r.casualties);
+      const survivors = stack.filter((p) => pieces[p.id]);
+      const dest = retreatNode(pieces, loserNode, winnerNode, r.casualties);
+      if (!dest) {
+        for (const p of survivors) delete pieces[p.id];
+        log.push(`${loserNation} lost ${r.casualties} and could not retreat — destroyed.`);
+      } else {
+        for (const p of survivors) pieces[p.id] = { ...pieces[p.id]!, node: dest };
+        log.push(`${loserNation} lost ${r.casualties}, retreated ${r.casualties} to ${dest}.`);
+      }
+    }
+  }
+
+  return { ...state, version: state.version + 1, pieces, hands, combat: null, log };
+}
+
+// ---- game definition -----------------------------------------------------
+
+export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
+  id: 'friedrich',
+  minPlayers: 3,
+  maxPlayers: 4,
+
+  setup(seed: string, players: readonly PlayerId[]): FriedrichState {
+    if (players.length < this.minPlayers || players.length > this.maxPlayers) {
+      throw new IllegalActionError(`Friedrich supports ${this.minPlayers}-${this.maxPlayers} players.`);
+    }
+    let rng = seedFromString(seed);
+    const hands: Record<Nation, TacticalCard[]> = {} as Record<Nation, TacticalCard[]>;
+    for (const nation of NATION_ORDER) {
+      const shuffled = rngShuffle(rng, buildTacticalDeck(nation));
+      rng = shuffled.r;
+      hands[nation] = shuffled.items.slice(0, BASE_DRAW[nation]);
+    }
+    const pieces: PieceMap = {};
+    for (const p of INITIAL_PIECES) pieces[p.id] = { ...p, faceUp: true };
+
+    return {
+      rng,
+      version: 0,
+      players: [...players],
+      seats: assignSeats(players),
+      turn: 1,
+      activeNationIndex: 0,
+      pieces,
+      hands,
+      stageMoves: {},
+      combat: null,
+      log: [`Game created with ${players.length} player(s). Prussia to act.`],
+    };
+  },
+
+  reducer(state: FriedrichState, action: FriedrichAction): FriedrichState {
+    switch (action.type) {
+      case 'ping':
+        return { ...state, version: state.version + 1, log: [...state.log, `${action.by}: ${action.note}`] };
+
+      case 'move': {
+        if (state.combat) throw new IllegalActionError('Finish the current battle first.');
+        const piece = state.pieces[action.pieceId];
+        if (!piece) throw new IllegalActionError('No such general.');
+        if (piece.nation !== activeNationOf(state)) throw new IllegalActionError(`It is ${activeNationOf(state)}'s turn.`);
+        if (state.stageMoves[piece.id] !== undefined) {
+          throw new IllegalActionError('That general has already moved this turn. Undo it first.');
+        }
+
+        const reach = reachableNodes(friedrichMap, piece.node, occupiedNodes(state.pieces));
+        if (!reach.has(action.to)) throw new IllegalActionError('That city is not reachable this move.');
+
+        const there = piecesAtNode(state.pieces, action.to);
+        if (there.some((p) => p.nation !== piece.nation)) {
+          throw new IllegalActionError('An enemy holds that city — attack from an adjacent city instead.');
+        }
+        if (there.length >= MAX_STACK) throw new IllegalActionError('That city is already stacked to the limit.');
+
+        const pieces = { ...state.pieces, [piece.id]: { ...piece, node: action.to } };
+        return {
+          ...state,
+          version: state.version + 1,
+          pieces,
+          stageMoves: { ...state.stageMoves, [piece.id]: piece.node },
+          log: [...state.log, `${piece.id} → ${action.to}.`],
+        };
+      }
+
+      case 'undoMove': {
+        if (state.combat) throw new IllegalActionError('Cannot undo during a battle.');
+        const origin = state.stageMoves[action.pieceId];
+        const piece = state.pieces[action.pieceId];
+        if (origin === undefined || !piece) throw new IllegalActionError('That general has not moved this turn.');
+        const stageMoves = { ...state.stageMoves };
+        delete stageMoves[action.pieceId];
+        return {
+          ...state,
+          version: state.version + 1,
+          pieces: { ...state.pieces, [action.pieceId]: { ...piece, node: origin } },
+          stageMoves,
+          log: [...state.log, `${action.pieceId} move undone (→ ${origin}).`],
+        };
+      }
+
+      case 'attack': {
+        if (state.combat) throw new IllegalActionError('A battle is already underway.');
+        const atk = state.pieces[action.attackerId];
+        const def = state.pieces[action.defenderId];
+        if (!atk || !def) throw new IllegalActionError('No such general.');
+        if (atk.nation !== activeNationOf(state)) throw new IllegalActionError(`It is ${activeNationOf(state)}'s turn.`);
+        if (!areEnemies(atk.nation, def.nation)) throw new IllegalActionError('That is not an enemy.');
+        if (!areAdjacent(friedrichMap, atk.node, def.node)) throw new IllegalActionError('Target is not adjacent.');
+
+        const atkStack = stackAt(state.pieces, atk.node, atk.nation);
+        const defStack = stackAt(state.pieces, def.node, def.nation);
+        const sum = (s: readonly Piece[]) => s.reduce((n, p) => n + p.troops, 0);
+        const atkSuit = friedrichMap.nodes.get(atk.node)!.suit;
+        const defSuit = friedrichMap.nodes.get(def.node)!.suit;
+
+        const duel = startDuel(
+          { troops: sum(atkStack), sectorSuit: atkSuit, hand: state.hands[atk.nation] },
+          { troops: sum(defStack), sectorSuit: defSuit, hand: state.hands[def.nation] },
+        );
+        const combat: CombatSub = {
+          attackerNode: atk.node,
+          defenderNode: def.node,
+          attackerNation: atk.nation,
+          defenderNation: def.nation,
+          duel,
+        };
+        return {
+          ...state,
+          version: state.version + 1,
+          combat,
+          stageMoves: {}, // committing to a battle finalizes this stage's moves
+          log: [...state.log, `${atk.nation} attacks ${def.nation} at ${def.node}.`],
+        };
+      }
+
+      case 'combatPlay':
+      case 'combatPass': {
+        if (!state.combat) throw new IllegalActionError('No battle in progress.');
+        const side = state.combat.duel.toMove;
+        const duel =
+          action.type === 'combatPlay'
+            ? playCard(state.combat.duel, side, action.cardId, action.reserve)
+            : pass(state.combat.duel, side);
+        if (duel.status === 'active') {
+          return { ...state, version: state.version + 1, combat: { ...state.combat, duel } };
+        }
+        return finalizeCombat(state, { ...state.combat, duel });
+      }
+
+      case 'endNationTurn': {
+        if (state.combat) throw new IllegalActionError('Finish the current battle first.');
+        const nextIndex = (state.activeNationIndex + 1) % NATION_ORDER.length;
+        const wrapped = nextIndex === 0;
+        return {
+          ...state,
+          version: state.version + 1,
+          activeNationIndex: nextIndex,
+          turn: wrapped ? state.turn + 1 : state.turn,
+          stageMoves: {}, // new stage: fresh move budget and ghosts
+          log: [...state.log, `${activeNationOf(state)} ends its stage; ${NATION_ORDER[nextIndex]} to act.`],
+        };
+      }
+
+      default: {
+        const _exhaustive: never = action;
+        throw new IllegalActionError(`Unknown action: ${(_exhaustive as { type: string }).type}`);
+      }
+    }
+  },
+
+  redact(state: FriedrichState, viewer: PlayerId): FriedrichState {
+    const controlled = nationsControlledBy(state, viewer);
+
+    // hide hands of nations the viewer doesn't control
+    const hands = { ...state.hands };
+    for (const nation of NATION_ORDER) {
+      if (!controlled.has(nation)) hands[nation] = [];
+    }
+
+    // hide secret troop counts on pieces the viewer doesn't own (-1 = hidden)
+    const pieces: PieceMap = {};
+    for (const [id, p] of Object.entries(state.pieces)) {
+      pieces[id] = controlled.has(p.nation) ? p : { ...p, troops: HIDDEN_TROOPS };
+    }
+
+    // in a battle, hide the opposing side's hand (pooled troop totals stay
+    // visible — the rules reveal them at the reveal step)
+    let combat = state.combat;
+    if (combat) {
+      const mask = (party: CombatSub['duel']['attacker'], nation: Nation) =>
+        controlled.has(nation) ? party : { ...party, hand: [] };
+      combat = {
+        ...combat,
+        duel: {
+          ...combat.duel,
+          attacker: mask(combat.duel.attacker, combat.attackerNation),
+          defender: mask(combat.duel.defender, combat.defenderNation),
+        },
+      };
+    }
+
+    return { ...state, hands, pieces, combat };
+  },
+};
+
+/** Sentinel troop value in a redacted view: this general's strength is secret. */
+export const HIDDEN_TROOPS = -1;
+
+export const NATION_OF_ROLE: Record<Role, readonly Nation[]> = {
+  frederick: ['prussia', 'hanover'],
+  elisabeth: ['russia', 'sweden'],
+  mariaTheresa: ['austria', 'imperial'],
+  pompadour: ['france'],
+};
+
+/** The set of nations a seated player controls (via their role(s)). */
+export function nationsControlledBy(state: FriedrichState, viewer: PlayerId): Set<Nation> {
+  const set = new Set<Nation>();
+  for (const role of state.seats[viewer] ?? []) {
+    for (const n of NATION_OF_ROLE[role]) set.add(n);
+  }
+  return set;
+}
+
+/** The nation an action must be entitled to act as (for authorization). */
+export function requiredNation(state: FriedrichState, action: FriedrichAction): Nation | null {
+  if (action.type === 'ping') return null;
+  if (action.type === 'combatPlay' || action.type === 'combatPass') {
+    if (!state.combat) return null;
+    return state.combat.duel.toMove === 'attacker' ? state.combat.attackerNation : state.combat.defenderNation;
+  }
+  return NATION_ORDER[state.activeNationIndex] ?? null;
+}
+
+/**
+ * Server-side authorization: may this player take this action now? Returns an
+ * error message, or null if allowed. (The pure reducer stays permissive; the
+ * authoritative server calls this so a player can only act for their own nation
+ * whose turn/battle it is. Local hotseat bypasses it.)
+ */
+export function authorizeAction(state: FriedrichState, viewer: PlayerId, action: FriedrichAction): string | null {
+  const need = requiredNation(state, action);
+  if (!need) return null;
+  if (!nationsControlledBy(state, viewer).has(need)) {
+    return `It is not your turn — ${need} is acting.`;
+  }
+  return null;
+}

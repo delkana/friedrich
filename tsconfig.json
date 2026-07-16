@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/engine" },
+    { "path": "./packages/friedrich" },
+    { "path": "./apps/server" },
+    { "path": "./apps/client" }
+  ]
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Friedrich — online</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0; font: 15px/1.5 system-ui, sans-serif;
+        background: #14161c; color: #e6e8ee; padding: 1.5rem;
+      }
+      h1 { font-size: 1.2rem; margin: 0 0 1rem; }
+      .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+      input, button {
+        font: inherit; padding: .4rem .6rem; border-radius: 6px;
+        border: 1px solid #333a48; background: #1d2029; color: inherit;
+      }
+      button { cursor: pointer; background: #2a3346; }
+      button:disabled { opacity: .4; cursor: not-allowed; }
+      button:hover:not(:disabled) { background: #34405a; }
+      .card { background: #1a1d25; border: 1px solid #262b36; border-radius: 10px; padding: 1rem; margin-top: 1rem; }
+      .muted { color: #9aa2b1; }
+      .you { color: #7fd18b; font-weight: 600; }
+      pre { background: #0f1116; padding: .75rem; border-radius: 8px; overflow: auto; max-height: 40vh; }
+      ul { margin: .25rem 0; padding-left: 1.1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Friedrich <span class="muted">— online engine (scaffold)</span></h1>
+    <p class="muted"><a href="/board.html" style="color:#8fb3ff">▶ Play the board demo</a> · <a href="/duel.html" style="color:#8fb3ff">combat duel demo</a></p>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

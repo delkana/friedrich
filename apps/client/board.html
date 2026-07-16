@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Friedrich</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --gold: #c6a24a;
+        --gold-dim: #8a7233;
+        --ink: #241a0e;
+        --panel: #191510;
+        --panel-edge: #3d3016;
+        --parch: #e7d9b8;
+        --text: #e8ddc4;
+        --muted: #9c8f74;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        font: 15px/1.45 'Trebuchet MS', system-ui, sans-serif;
+        background: #0b0906; color: var(--text);
+        user-select: none; -webkit-user-select: none;
+      }
+      .serif { font-family: Georgia, 'Palatino Linotype', 'Book Antiqua', serif; }
+
+      /* ---- full-screen frame ---- */
+      #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+      /* ---- top command bar ---- */
+      #topbar {
+        height: 54px; flex: 0 0 auto; display: flex; align-items: center; gap: 18px;
+        padding: 0 18px; background: linear-gradient(#1c1710, #141009);
+        border-bottom: 1px solid var(--panel-edge);
+        box-shadow: 0 2px 12px #000a, inset 0 1px 0 #ffffff0d;
+        z-index: 20;
+      }
+      #title { font-family: Georgia, serif; font-size: 21px; letter-spacing: 7px;
+        color: var(--gold); text-shadow: 0 1px 0 #000; padding-right: 6px; }
+      #title small { display: block; font-size: 9px; letter-spacing: 3px; color: var(--muted); margin-top: -3px; }
+      .bar-spacer { flex: 1; }
+      .turnbox { text-align: center; font-family: Georgia, serif; }
+      .turnbox .yr { font-size: 19px; color: var(--parch); }
+      .turnbox .lbl { font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; }
+      #active-banner { display: flex; align-items: center; gap: 9px; padding: 5px 14px;
+        border: 1px solid var(--panel-edge); border-radius: 3px; background: #0f0c08; }
+      #active-banner .swatch { width: 16px; height: 16px; border-radius: 2px; border: 1px solid #0008; box-shadow: 0 0 0 1px #ffffff22; }
+      #active-banner .who { font-family: Georgia, serif; font-size: 16px; }
+      #active-banner .sub { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+      .navlinks a { color: var(--muted); text-decoration: none; font-size: 12px; margin-left: 12px; letter-spacing: .5px; }
+      .navlinks a:hover { color: var(--gold); }
+      .muted-tag { font-size: 12px; color: var(--muted); letter-spacing: .5px; padding: 4px 10px; border: 1px solid var(--panel-edge); border-radius: 3px; }
+
+      /* ---- lobby ---- */
+      #lobby { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center;
+        background: radial-gradient(90% 90% at 50% 40%, #1a140bdd, #060504f2); }
+      #lobby.show { display: flex; }
+      #lobby-card { width: min(440px, 92vw); padding: 26px 30px 24px; text-align: center;
+        background: linear-gradient(#211a10, #16110a); border: 1px solid #5a4a24; border-radius: 8px;
+        box-shadow: 0 24px 70px #000d, inset 0 1px 0 #ffffff12; }
+      #lobby-card h2 { margin: 0 0 2px; font-size: 30px; letter-spacing: 12px; color: var(--gold); }
+      #lobby-card .sub { color: var(--muted); margin: 0 0 16px; font-size: 13px; }
+      #lobby-card .sub.small { font-size: 11px; margin-top: 14px; }
+      #lobby-card label { display: block; text-align: left; font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+        color: var(--gold-dim); margin: 10px 0 0; }
+      #lobby-card input { width: 100%; margin-top: 4px; padding: 9px 11px; font: inherit; color: var(--text);
+        background: #0d0a06; border: 1px solid #4a3c1f; border-radius: 4px; }
+      .lb-buttons { display: flex; gap: 10px; margin-top: 18px; }
+      .lb-buttons .gb { flex: 1; padding: 11px; }
+      .lb-players { list-style: none; padding: 0; margin: 4px 0; text-align: left; font-size: 14px; }
+      .lb-players li { padding: 4px 0; border-bottom: 1px dashed #ffffff12; }
+      .lb-msg { min-height: 18px; color: var(--gold); font-size: 12px; margin: 12px 0 0; }
+
+      /* ---- map viewport ---- */
+      #map-view { position: relative; flex: 1 1 auto; overflow: hidden;
+        background:
+          radial-gradient(120% 120% at 50% 40%, #241c12 0%, #140f09 60%, #0a0705 100%);
+        cursor: grab; touch-action: none; }
+      #map-view.grabbing { cursor: grabbing; }
+      #board-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+      /* aged-paper vignette drawn over the map, fixed to the viewport */
+      #vignette { position: absolute; inset: 0; pointer-events: none;
+        box-shadow: inset 0 0 200px 40px #1a120988, inset 0 0 60px #0006;
+        background: radial-gradient(130% 120% at 50% 45%, transparent 60%, #120c0655 100%); }
+
+      .edge { stroke: #4a3826; stroke-width: 4; stroke-linecap: round; }
+      .edge.main { stroke: #241a0e; stroke-width: 15; }
+      .edge.main-inner { stroke: #cdb98c; stroke-width: 5; }
+      .node { fill: #f2e7c8; stroke-width: 7; }
+      .node.reach { stroke: #2f7d43 !important; stroke-width: 16; }
+      .node.reach + .obj, .node.reach { cursor: pointer; }
+      .nlabel { fill: #3a2c17; font-size: 26px; font-family: Georgia, serif; font-style: italic;
+        text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: #ece0c2; stroke-width: 5px; stroke-linejoin: round; }
+      .nlabel.setuplbl { font-weight: 700; font-style: normal; }
+      .sector-line line { stroke: #38507e; stroke-width: 5; opacity: .5; stroke-dasharray: 20 12; stroke-linecap: round; }
+      .stamp { text-anchor: middle; pointer-events: none; font-family: Georgia, serif; opacity: .26; font-size: 165px; }
+      .ghost-trail { stroke: #e8c24a; stroke-width: 5; stroke-dasharray: 4 14; opacity: .8; stroke-linecap: round; }
+      .piece { cursor: pointer; }
+      .piece circle { stroke: #1c140a; stroke-width: 5; }
+      .piece.sel circle { stroke: #e8c24a !important; stroke-width: 11; }
+      .piece.target circle { stroke: #d64a3f !important; stroke-width: 11; }
+      .piece .ring { fill: none; }
+      .piece.sel .ring { stroke: #e8c24a; stroke-width: 5; opacity: .6; }
+      .piece.target .ring { stroke: #d64a3f; stroke-width: 5; opacity: .6; }
+      .ptext { fill: #f7f1df; font-size: 30px; font-weight: 700; text-anchor: middle; pointer-events: none; font-family: Georgia, serif; }
+
+      /* ---- HUD overlay ---- */
+      #hud { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
+      #hud > * { pointer-events: auto; }
+      .panel { position: absolute; background: linear-gradient(#1d1710f2, #14100af2);
+        border: 1px solid var(--panel-edge); border-radius: 5px;
+        box-shadow: 0 6px 26px #000b, inset 0 1px 0 #ffffff0e; }
+      .panel h4 { margin: 0; padding: 8px 12px 6px; font-family: Georgia, serif; font-size: 12px;
+        letter-spacing: 2px; text-transform: uppercase; color: var(--gold-dim);
+        border-bottom: 1px solid #ffffff10; }
+
+      /* log, top-left below the command bar */
+      #log-panel { left: 14px; top: 14px; width: 300px; max-height: 30vh; display: flex; flex-direction: column; opacity: .94; }
+      #log-list { margin: 0; padding: 8px 14px 12px; list-style: none; overflow-y: auto; font-size: 13px; }
+      #log-list li { padding: 2px 0; color: #cdbfa0; border-bottom: 1px dashed #ffffff0d; }
+      #log-list li:last-child { color: var(--text); }
+
+      /* command bar, bottom-center */
+      #command { left: 50%; transform: translateX(-50%); bottom: 16px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+      #status-line { font-family: Georgia, serif; font-style: italic; color: var(--muted); min-width: 200px; }
+      button.gb { font: inherit; font-size: 13px; letter-spacing: .5px; padding: 8px 16px; cursor: pointer;
+        color: #f2e7c8; background: linear-gradient(#3a2f18, #241b0d); border: 1px solid #5a4a24;
+        border-radius: 3px; box-shadow: inset 0 1px 0 #ffffff18, 0 2px 6px #0007; }
+      button.gb:hover:not(:disabled) { background: linear-gradient(#4a3c1f, #2e2411); border-color: var(--gold-dim); color: #fff; }
+      button.gb:disabled { opacity: .4; cursor: not-allowed; }
+      button.gb.primary { border-color: var(--gold-dim); color: var(--gold); }
+
+      /* zoom controls, right edge */
+      #zoom { right: 14px; bottom: 16px; display: flex; flex-direction: column; padding: 6px; gap: 6px; }
+      #zoom button { width: 36px; height: 36px; padding: 0; font-size: 19px; line-height: 1;
+        display: flex; align-items: center; justify-content: center; }
+
+      /* compass, top-right of map */
+      #compass { position: absolute; right: 16px; top: 14px; width: 70px; height: 70px; opacity: .5; pointer-events: none; }
+
+      /* ---- battle dialog ---- */
+      #combat-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+        background: radial-gradient(80% 80% at 50% 45%, #0009, #000c); backdrop-filter: blur(2px); z-index: 15; }
+      #combat-overlay.show { display: flex; }
+      #combat-box { width: min(760px, 94vw); max-height: 92vh; overflow: auto; padding: 4px 18px 18px;
+        background: linear-gradient(#211a10, #17110a); border: 1px solid #5a4a24;
+        border-radius: 6px; box-shadow: 0 20px 60px #000d, inset 0 1px 0 #ffffff12; }
+      #combat-box h3 { font-family: Georgia, serif; letter-spacing: 3px; text-transform: uppercase; color: var(--gold); text-align: center; margin: 14px 0 2px; }
+      .duel-sides { display: flex; gap: 14px; align-items: stretch; margin: 10px 0; }
+      .side { flex: 1; padding: 10px 12px; border: 1px solid #ffffff14; border-radius: 4px; background: #0f0c08; }
+      .side.active { border-color: var(--gold-dim); box-shadow: 0 0 0 1px #c6a24a55, 0 0 22px #c6a24a22; }
+      .side .nm { font-family: Georgia, serif; font-size: 18px; }
+      .side .meta { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+      .hand { display: flex; gap: 5px; flex-wrap: wrap; }
+      .tc { width: 46px; height: 64px; border-radius: 5px; border: 1px solid #0007; background: #efe6cf; color: #241a0e;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 700; font-family: Georgia, serif; box-shadow: 0 2px 4px #0006; }
+      .tc .sym { font-size: 20px; line-height: 1; } .tc .val { font-size: 15px; }
+      .tc.red { color: #a62a22; } .tc.reserve { background: #2f2717; color: #e8ddc4; font-size: 11px; }
+      .tc.playable { cursor: pointer; } .tc.playable:hover { outline: 2px solid var(--gold); }
+      .tc.disabled { opacity: .34; }
+      .scorebar { height: 30px; border-radius: 4px; background: #0c0a07; position: relative; overflow: hidden; margin: 6px 0; border: 1px solid #ffffff12; }
+      .scorebar .fill { position: absolute; top: 0; bottom: 0; }
+      .scorebar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #6b5a30; }
+      .banner { padding: 10px 12px; border-radius: 4px; font-weight: 600; text-align: center; font-family: Georgia, serif; }
+      .banner.win { background: #14311d; border: 1px solid #2f7d43; color: #bfe6c9; }
+      .banner.tie { background: #322c16; border: 1px solid #7d6f2f; color: #e6dcae; }
+      .duel-controls { display: flex; align-items: center; gap: 12px; justify-content: center; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/board.ts"></script>
+  </body>
+</html>

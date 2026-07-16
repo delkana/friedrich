@@ -1,0 +1,19 @@
+{
+  "name": "@friedrich/server",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node --experimental-strip-types src/index.ts",
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@friedrich/engine": "0.0.1",
+    "@friedrich/game": "0.0.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13"
+  }
+}

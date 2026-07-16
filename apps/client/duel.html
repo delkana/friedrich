@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Friedrich — combat duel</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; font: 15px/1.5 system-ui, sans-serif;
+        background: #14161c; color: #e6e8ee; padding: 1.5rem;
+      }
+      a { color: #8fb3ff; }
+      h1 { font-size: 1.2rem; margin: 0 0 1rem; }
+      .muted { color: #9aa2b1; }
+      .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+      input, button, select {
+        font: inherit; padding: .4rem .6rem; border-radius: 6px;
+        border: 1px solid #333a48; background: #1d2029; color: inherit;
+      }
+      button { cursor: pointer; background: #2a3346; }
+      button:disabled { opacity: .4; cursor: not-allowed; }
+      button:hover:not(:disabled) { background: #34405a; }
+      .card { background: #1a1d25; border: 1px solid #262b36; border-radius: 10px; padding: 1rem; margin-top: 1rem; }
+
+      .party { border: 1px solid #2b303c; border-radius: 10px; padding: .85rem; flex: 1; min-width: 260px; }
+      .party.active { border-color: #6f8cff; box-shadow: 0 0 0 1px #6f8cff55; }
+      .party h3 { margin: 0 0 .35rem; font-size: 1rem; }
+      .party .tot { font-variant-numeric: tabular-nums; }
+
+      .hand { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+      .tc {
+        width: 46px; height: 62px; border-radius: 7px; border: 1px solid #3a4150;
+        background: #eef1f6; color: #14161c; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; font-weight: 700; user-select: none;
+      }
+      .tc .sym { font-size: 1.15rem; line-height: 1; }
+      .tc .val { font-size: .95rem; }
+      .tc.red { color: #c0392b; }
+      .tc.reserve { background: #3a3f4d; color: #e6e8ee; font-size: .7rem; }
+      .tc.playable { cursor: pointer; outline: 2px solid transparent; }
+      .tc.playable:hover { outline-color: #6f8cff; }
+      .tc.disabled { opacity: .38; }
+
+      .score { height: 26px; border-radius: 6px; background: #0f1116; position: relative; overflow: hidden; margin: .4rem 0; }
+      .score .fill { position: absolute; top: 0; bottom: 0; }
+      .score .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #4a5164; }
+      .banner { padding: .6rem .8rem; border-radius: 8px; font-weight: 600; }
+      .banner.win { background: #16351f; border: 1px solid #2f7d43; }
+      .banner.tie { background: #33301a; border: 1px solid #7d6f2f; }
+      ul.log { margin: .25rem 0; padding-left: 1.1rem; max-height: 30vh; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>Friedrich — combat duel <span class="muted">(engine demo)</span></h1>
+    <p class="muted"><a href="/">← online room</a> · a hotseat battle driven directly by the rules engine. You play both hands.</p>
+    <div id="app"></div>
+    <script type="module" src="/src/duel.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+*.log
+.env
+.env.*
+
+# Copyrighted Histogame source material + everything derived from it during map
+# extraction — do NOT publish. The game ships only the generated, self-contained
+# packages/friedrich/src/map-data.ts (city graph + suits), which is all that is
+# needed to build and run. The board scans, VASSAL module, tiles and the
+# intermediate extraction JSON stay local.
+docs/assets/

@@ -1,0 +1,17 @@
+{
+  "name": "@friedrich/client",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@friedrich/engine": "0.0.1",
+    "@friedrich/game": "0.0.1"
+  },
+  "devDependencies": {
+    "vite": "^6.0.3"
+  }
+}
