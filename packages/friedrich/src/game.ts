@@ -260,10 +260,10 @@ function drawFate(state: FriedrichState): FriedrichState {
       s = retirePrussianGeneral(eliminateNation(s, 'sweden'));
       break;
     case 'america':
-      s = reduceDraw(eliminateNation(s, 'france'), 'hanover', 1); // (India-first nuance simplified)
+      s = maybeWithdrawFrance(reduceDraw(s, 'hanover', 1));
       break;
     case 'india':
-      s = reduceDraw(reduceDraw(s, 'austria', 4), 'france', 3);
+      s = maybeWithdrawFrance(reduceDraw(reduceDraw(s, 'austria', 4), 'france', 3));
       break;
     case 'lordBute':
       s = reduceDraw(s, 'prussia', 5);
@@ -275,6 +275,15 @@ function drawFate(state: FriedrichState): FriedrichState {
       break;
   }
   return s;
+}
+
+/** France quits only once BOTH the India and America cards have been drawn. */
+function maybeWithdrawFrance(state: FriedrichState): FriedrichState {
+  const drawn = state.fateDrawn;
+  if (drawn.includes('india') && drawn.includes('america') && !state.eliminated.includes('france')) {
+    return eliminateNation(state, 'france');
+  }
+  return state;
 }
 
 /** Permanently lower a nation's card draw (never raises it). */

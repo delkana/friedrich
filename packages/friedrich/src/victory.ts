@@ -1,46 +1,70 @@
 /**
- * Victory conditions. An attacker nation wins the instant it controls ALL of its
- * objective cities at once. Prussia (Frederick) wins by survival — once Russia,
- * Sweden and France have all been forced out of the war by the Cards of Fate.
+ * Victory conditions. An attacker nation wins the instant it controls all of the
+ * objective cities it needs. Normally that means both 1st- and 2nd-order
+ * objectives, but the requirement is EASED to 1st-order only when the war has
+ * turned: Sweden needs only 1st-order once Russia is out, and Austria/Imperial
+ * need only 1st-order once the Imperial Army has "switched players" (i.e. Russia
+ * and Sweden are both out, or France is out). Prussia (Frederick) wins by
+ * survival — once Russia, Sweden and France have all been forced out of the war.
  */
 
 import { friedrichMap } from './map-data.js';
 import type { Nation } from './powers.js';
 import type { FriedrichState, Winner } from './state.js';
 
-/** Coalition nations that pursue objectives (Prussia & Hanover are the defence). */
 export const ATTACKER_NATIONS: readonly Nation[] = ['russia', 'sweden', 'austria', 'imperial', 'france'];
-
-/** Nations whose withdrawal (via Cards of Fate) hands Prussia the survival win. */
 export const SURVIVAL_NATIONS: readonly Nation[] = ['russia', 'sweden', 'france'];
 
-/** Objective city ids per nation, precomputed from the map. */
-const OBJECTIVES_BY_NATION: ReadonlyMap<Nation, readonly string[]> = (() => {
-  const m = new Map<Nation, string[]>();
+/** 1st- and 2nd-order objective city ids per nation, precomputed from the map. */
+const OBJECTIVES_BY_NATION: ReadonlyMap<Nation, { first: string[]; second: string[] }> = (() => {
+  const m = new Map<Nation, { first: string[]; second: string[] }>();
   for (const node of friedrichMap.nodes.values()) {
     if (!node.objectiveFor) continue;
     const nation = node.objectiveFor as Nation;
-    if (!m.has(nation)) m.set(nation, []);
-    m.get(nation)!.push(node.id);
+    if (!m.has(nation)) m.set(nation, { first: [], second: [] });
+    (node.objectiveOrder === 2 ? m.get(nation)!.second : m.get(nation)!.first).push(node.id);
   }
   return m;
 })();
 
-export const objectivesOf = (nation: Nation): readonly string[] => OBJECTIVES_BY_NATION.get(nation) ?? [];
+const objs = (nation: Nation) => OBJECTIVES_BY_NATION.get(nation) ?? { first: [], second: [] };
 
-/** How many of `nation`'s objectives it currently holds (for progress display). */
+export const objectivesOf = (nation: Nation): readonly string[] => {
+  const o = objs(nation);
+  return [...o.first, ...o.second];
+};
+
+/** Has the Imperial Army "switched players"? (Russia & Sweden out, or France out.) */
+function imperialSwitched(state: FriedrichState): boolean {
+  const out = (n: Nation) => state.eliminated.includes(n);
+  return (out('russia') && out('sweden')) || out('france');
+}
+
+/** Is this nation's objective requirement eased to 1st-order only? */
+export function isEased(state: FriedrichState, nation: Nation): boolean {
+  if (nation === 'sweden') return state.eliminated.includes('russia');
+  if (nation === 'austria' || nation === 'imperial') return imperialSwitched(state);
+  return false;
+}
+
+/** The objectives a nation must hold to win right now (eased conditions applied). */
+export function requiredObjectives(state: FriedrichState, nation: Nation): readonly string[] {
+  const o = objs(nation);
+  return isEased(state, nation) ? o.first : [...o.first, ...o.second];
+}
+
+/** How many required objectives a nation currently holds (for progress display). */
 export function objectiveProgress(state: FriedrichState, nation: Nation): { held: number; total: number } {
-  const objs = objectivesOf(nation);
-  const held = objs.filter((id) => state.conquered[id] === nation).length;
-  return { held, total: objs.length };
+  const req = requiredObjectives(state, nation);
+  return { held: req.filter((id) => state.conquered[id] === nation).length, total: req.length };
 }
 
 /** Returns the winner if the game has been decided, else null. */
 export function checkVictory(state: FriedrichState): Winner | null {
   for (const nation of ATTACKER_NATIONS) {
     if (state.eliminated.includes(nation)) continue;
-    const objs = objectivesOf(nation);
-    if (objs.length > 0 && objs.every((id) => state.conquered[id] === nation)) {
+    const req = requiredObjectives(state, nation);
+    if (req.length > 0 && req.every((id) => state.conquered[id] === nation)) {
       return { side: 'attacker', nation };
     }
   }

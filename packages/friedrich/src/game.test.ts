@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { IllegalActionError } from '@friedrich/engine';
 import { Friedrich } from './game.js';
 import { friedrichMap } from './map-data.js';
-import { checkVictory, objectivesOf } from './victory.js';
+import { checkVictory, objectivesOf, requiredObjectives } from './victory.js';
 import { inSupply } from './supply.js';
 import type { FriedrichState, FriedrichAction } from './state.js';
 
@@ -143,6 +143,31 @@ test('an attacker wins by holding all of its objective cities', () => {
 test('Prussia wins by survival once Russia, Sweden and France are out', () => {
   const s: FriedrichState = { ...fresh(), eliminated: ['russia', 'sweden', 'france'] };
   assert.deepEqual(checkVictory(s), { side: 'defender' });
+});
+
+test('eased victory: Sweden needs only its 1st-order objectives once Russia is out', () => {
+  const easedReq = requiredObjectives({ ...fresh(), eliminated: ['russia'] }, 'sweden');
+  const fullReq = requiredObjectives(fresh(), 'sweden');
+  assert.ok(easedReq.length > 0 && fullReq.length > easedReq.length, 'Sweden has 2nd-order objectives that ease away');
+
+  const conquered = Object.fromEntries(easedReq.map((id) => [id, 'sweden' as const]));
+  assert.equal(checkVictory({ ...fresh(), conquered }), null, 'not a win while Russia is still in');
+  assert.deepEqual(
+    checkVictory({ ...fresh(), conquered, eliminated: ['russia'] }),
+    { side: 'attacker', nation: 'sweden' },
+  );
+});
+
+test('France only withdraws after both the India and America cards are drawn', () => {
+  let s = fresh();
+  for (let i = 0; i < 400 && !s.winner; i++) s = act(s, { type: 'endNationTurn', by: 'p0' });
+  if (s.eliminated.includes('france')) {
+    assert.ok(
+      s.fateDrawn.includes('india') && s.fateDrawn.includes('america'),
+      'France left the war only after both of its Cards of Fate',
+    );
+  }
+  assert.ok(s.winner, 'the war reaches a conclusion');
 });
 
 test('an attacker seizes its objective by occupying it', () => {
