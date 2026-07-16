@@ -162,9 +162,12 @@ function boardInner(): string {
   const nodes = [...friedrichMap.nodes.values()]
     .map((n) => {
       const reach = targets.has(n.id) ? 'reach' : '';
+      // objective banner: solid = held by its attacker, hollow = still the defender's
+      const objCol = n.objectiveFor ? (NATION_COLOR[n.objectiveFor as Nation] ?? '#888') : '';
+      const held = n.objectiveFor ? state.conquered[n.id] === n.objectiveFor : false;
       const obj = n.objectiveFor
-        ? `<rect x="${n.x + 22}" y="${n.y - 54}" width="30" height="30" fill="${NATION_COLOR[n.objectiveFor as Nation] ?? '#888'}" stroke="#241a0e" stroke-width="3"/>` +
-          (n.objectiveOrder === 2 ? `<line x1="${n.x + 24}" y1="${n.y - 26}" x2="${n.x + 50}" y2="${n.y - 52}" stroke="#f2e7c8" stroke-width="5"/>` : '')
+        ? `<rect x="${n.x + 22}" y="${n.y - 54}" width="30" height="30" fill="${held ? objCol : '#e7d9b8'}" stroke="${objCol}" stroke-width="${held ? 3 : 5}"/>` +
+          (n.objectiveOrder === 2 ? `<line x1="${n.x + 24}" y1="${n.y - 26}" x2="${n.x + 50}" y2="${n.y - 52}" stroke="${held ? '#f2e7c8' : objCol}" stroke-width="4"/>` : '')
         : '';
       const depot = n.depot ? `<text x="${n.x - 32}" y="${n.y - 24}" font-size="42" fill="#9e2b25" text-anchor="middle">✳</text>` : '';
       return `<g><circle class="node ${reach}" data-node="${n.id}" cx="${n.x}" cy="${n.y}" r="${n.setup ? 30 : 24}" stroke="${SUIT_COLOR[n.suit]}"/>${obj}${depot}<text class="nlabel ${n.setup ? 'setuplbl' : ''}" x="${n.x}" y="${n.y + 60}">${n.name}</text></g>`;
@@ -441,6 +444,35 @@ function renderChrome(): void {
   const overlay = document.getElementById('combat-overlay')!;
   if (state.combat) { overlay.classList.add('show'); overlay.innerHTML = combatBox(); }
   else { overlay.classList.remove('show'); overlay.innerHTML = ''; }
+
+  // Clock of Fate + withdrawn nations
+  const fateTag = document.getElementById('fate-tag')!;
+  if (state.turn >= 6 || state.eliminated.length) {
+    const out = state.eliminated.length
+      ? ' · out: ' + state.eliminated.map((n) => NATION_LABEL[n]).join(', ')
+      : '';
+    fateTag.hidden = false;
+    fateTag.textContent = `Clock of Fate ${state.fateDrawn.length}/18${out}`;
+  } else {
+    fateTag.hidden = true;
+  }
+
+  // victory screen
+  const go = document.getElementById('gameover')!;
+  if (state.winner) {
+    const msg = state.winner.side === 'defender'
+      ? 'Frederick endures — Prussia wins the war!'
+      : `${NATION_LABEL[state.winner.nation]} has taken all its objectives — victory!`;
+    go.classList.add('show');
+    go.innerHTML = `<div id="go-card">
+      <div class="go-title serif">Victory</div>
+      <div class="go-msg">${msg}</div>
+      ${mode === 'local' ? '<button class="gb primary" id="go-again">New Game</button>' : `<div class="sub">after ${state.turn} turns</div>`}
+    </div>`;
+  } else {
+    go.classList.remove('show');
+    go.innerHTML = '';
+  }
 }
 
 function renderMap(): void {
@@ -506,11 +538,11 @@ function onPieceClick(pieceId: string): void {
 }
 
 function onHudClick(e: Event): void {
-  const t = (e.target as Element).closest('[data-card],[data-resval],#cpass,#btn-end,#btn-reset,#btn-undo,#zoom-in,#zoom-out,#zoom-fit') as HTMLElement | null;
+  const t = (e.target as Element).closest('[data-card],[data-resval],#cpass,#btn-end,#btn-reset,#btn-undo,#go-again,#zoom-in,#zoom-out,#zoom-fit') as HTMLElement | null;
   if (!t) return;
   if (t.id === 'btn-undo') { if (selected) dispatch({ type: 'undoMove', pieceId: selected }); return; }
   if (t.id === 'btn-end') { selected = null; dispatch({ type: 'endNationTurn' }); return; }
-  if (t.id === 'btn-reset') { state = Friedrich.setup('board-demo', ['A', 'B', 'C', 'D']); selected = null; renderMap(); renderChrome(); return; }
+  if (t.id === 'btn-reset' || t.id === 'go-again') { state = Friedrich.setup('board-demo', ['A', 'B', 'C', 'D']); selected = null; renderMap(); renderChrome(); return; }
   if (t.id === 'zoom-in') return zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
   if (t.id === 'zoom-out') return zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
   if (t.id === 'zoom-fit') return fitView();
@@ -551,6 +583,7 @@ function mount(): void {
       <div class="turnbox"><div class="yr">Turn <span id="turn-num">1</span></div><div class="lbl">1756 · Clock of Fate</div></div>
       <div id="active-banner"><span class="swatch"></span><div><span class="who serif"></span> <span class="sub">to act</span></div></div>
       <div class="bar-spacer"></div>
+      <div id="fate-tag" class="muted-tag" hidden></div>
       <div id="you-tag" class="muted-tag"></div>
       <div class="navlinks"><a href="/duel.html">Duel</a></div>
     </div>
@@ -572,6 +605,7 @@ function mount(): void {
           <button class="gb" id="zoom-fit">⤢</button>
         </div>
         <div id="combat-overlay"></div>
+        <div id="gameover"></div>
       </div>
     </div>
     <div id="lobby"><div id="lobby-card"></div></div>`;

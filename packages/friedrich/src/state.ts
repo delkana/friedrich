@@ -1,6 +1,10 @@
 import type { BaseState, BaseAction, PlayerId, TacticalCard, ReservePlay, DuelState } from '@friedrich/engine';
 import type { Role, Nation } from './powers.js';
 import type { Piece } from './pieces.js';
+import type { FateCard } from './fate.js';
+
+/** How the game ended. `defender` = Frederick/Prussia surviving the war. */
+export type Winner = { readonly side: 'attacker'; readonly nation: Nation } | { readonly side: 'defender' };
 
 /**
  * An in-progress battle. The duel state machine (engine) does the scoring; this
@@ -37,6 +41,15 @@ export interface FriedrichState extends BaseState {
   readonly stageMoves: Readonly<Record<string, string>>;
   /** The battle being resolved, if any (blocks movement until finished). */
   readonly combat: CombatSub | null;
+  /** Objective city id → the attacker nation that currently holds it. */
+  readonly conquered: Readonly<Record<string, Nation>>;
+  /** Nations forced out of the war by the Cards of Fate. */
+  readonly eliminated: readonly Nation[];
+  /** The Cards of Fate deck (top = index 0) and the ones already executed. */
+  readonly fateDeck: readonly FateCard[];
+  readonly fateDrawn: readonly FateCard[];
+  /** Set once a side has won; further actions are rejected. */
+  readonly winner: Winner | null;
   /** Human-readable event log, newest last. */
   readonly log: readonly string[];
 }

@@ -14,9 +14,11 @@ import {
   type TacticalCard,
 } from '@friedrich/engine';
 import { NATION_ORDER, BASE_DRAW, type Role, type Nation } from './powers.js';
-import { INITIAL_PIECES, MAX_STACK, areEnemies, type Piece } from './pieces.js';
+import { INITIAL_PIECES, MAX_STACK, areEnemies, sideOf, type Piece } from './pieces.js';
 import { friedrichMap } from './map-data.js';
-import type { FriedrichState, FriedrichAction, CombatSub } from './state.js';
+import { buildFateDeck, FATE_LABEL, type FateCard } from './fate.js';
+import { checkVictory } from './victory.js';
+import type { FriedrichState, FriedrichAction, CombatSub, Winner } from './state.js';
 
 type PieceMap = Record<string, Piece>;
 
@@ -127,6 +129,78 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
   return { ...state, version: state.version + 1, pieces, hands, combat: null, log };
 }
 
+// ---- end-game: conquest, Cards of Fate, victory --------------------------
+
+function victoryMessage(w: Winner): string {
+  return w.side === 'defender'
+    ? 'Frederick has survived the war — Prussia wins!'
+    : `${w.nation} has seized all its objectives — ${w.nation} wins!`;
+}
+
+/** Stamp a winner onto the state if the game is now decided. */
+function withWinner(state: FriedrichState): FriedrichState {
+  if (state.winner) return state;
+  const w = checkVictory(state);
+  return w ? { ...state, winner: w, log: [...state.log, victoryMessage(w)] } : state;
+}
+
+/** Force a nation out of the war: remove its pieces, hand and control markers. */
+function eliminateNation(state: FriedrichState, nation: Nation): FriedrichState {
+  if (state.eliminated.includes(nation)) return state;
+  const pieces: PieceMap = {};
+  for (const [id, p] of Object.entries(state.pieces)) if (p.nation !== nation) pieces[id] = p;
+  const conquered: Record<string, Nation> = {};
+  for (const [node, holder] of Object.entries(state.conquered)) if (holder !== nation) conquered[node] = holder;
+  return {
+    ...state,
+    pieces,
+    hands: { ...state.hands, [nation]: [] },
+    conquered,
+    eliminated: [...state.eliminated, nation],
+    log: [...state.log, `${nation} withdraws from the war.`],
+  };
+}
+
+/** Retire one Prussian general (lowest command = highest rank number present). */
+function retirePrussianGeneral(state: FriedrichState): FriedrichState {
+  const victim = Object.values(state.pieces)
+    .filter((p) => p.nation === 'prussia')
+    .sort((a, b) => b.rank - a.rank)[0];
+  if (!victim) return state;
+  const pieces = { ...state.pieces };
+  delete pieces[victim.id];
+  return { ...state, pieces, log: [...state.log, `A Prussian general (${victim.id}) is retired.`] };
+}
+
+/** Draw and execute the top Card of Fate. */
+function drawFate(state: FriedrichState): FriedrichState {
+  const card = state.fateDeck[0] as FateCard | undefined;
+  if (!card) return state;
+  let s: FriedrichState = {
+    ...state,
+    fateDeck: state.fateDeck.slice(1),
+    fateDrawn: [...state.fateDrawn, card],
+    log: [...state.log, `Card of Fate: ${FATE_LABEL[card]}.`],
+  };
+  switch (card) {
+    case 'elisabeth':
+      s = retirePrussianGeneral(eliminateNation(s, 'russia'));
+      break;
+    case 'sweden':
+      s = retirePrussianGeneral(eliminateNation(s, 'sweden'));
+      break;
+    case 'america':
+      s = eliminateNation(s, 'france'); // simplified: removes France (the "India first" nuance is TODO)
+      break;
+    case 'india':
+    case 'lordBute':
+    case 'poems':
+    case 'minor':
+      break; // draw-count effects need per-stage card draw (a later milestone)
+  }
+  return s;
+}
+
 // ---- game definition -----------------------------------------------------
 
 export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
@@ -145,6 +219,8 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       rng = shuffled.r;
       hands[nation] = shuffled.items.slice(0, BASE_DRAW[nation]);
     }
+    const fate = buildFateDeck(rng);
+    rng = fate.rng;
     const pieces: PieceMap = {};
     for (const p of INITIAL_PIECES) pieces[p.id] = { ...p, faceUp: true };
 
@@ -159,11 +235,19 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       hands,
       stageMoves: {},
       combat: null,
+      conquered: {},
+      eliminated: [],
+      fateDeck: fate.deck,
+      fateDrawn: [],
+      winner: null,
       log: [`Game created with ${players.length} player(s). Prussia to act.`],
     };
   },
 
   reducer(state: FriedrichState, action: FriedrichAction): FriedrichState {
+    if (state.winner && action.type !== 'ping') {
+      throw new IllegalActionError('The war is over.');
+    }
     switch (action.type) {
       case 'ping':
         return { ...state, version: state.version + 1, log: [...state.log, `${action.by}: ${action.note}`] };
@@ -187,13 +271,32 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         if (there.length >= MAX_STACK) throw new IllegalActionError('That city is already stacked to the limit.');
 
         const pieces = { ...state.pieces, [piece.id]: { ...piece, node: action.to } };
-        return {
+
+        // objective conquest: an attacker seizes its own objective by occupying
+        // it; a defender re-takes it by moving onto it
+        let conquered = state.conquered;
+        const dest = friedrichMap.nodes.get(action.to)!;
+        const log = [`${piece.id} → ${action.to}.`];
+        if (dest.objectiveFor) {
+          if (piece.nation === dest.objectiveFor) {
+            conquered = { ...conquered, [action.to]: piece.nation };
+            log.push(`${piece.nation} seizes ${dest.name}!`);
+          } else if (sideOf(piece.nation) === 'defender' && conquered[action.to]) {
+            const c = { ...conquered };
+            delete c[action.to];
+            conquered = c;
+            log.push(`Prussia retakes ${dest.name}.`);
+          }
+        }
+
+        return withWinner({
           ...state,
           version: state.version + 1,
           pieces,
+          conquered,
           stageMoves: { ...state.stageMoves, [piece.id]: piece.node },
-          log: [...state.log, `${piece.id} → ${action.to}.`],
-        };
+          log: [...state.log, ...log],
+        });
       }
 
       case 'undoMove': {
@@ -263,16 +366,28 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
 
       case 'endNationTurn': {
         if (state.combat) throw new IllegalActionError('Finish the current battle first.');
-        const nextIndex = (state.activeNationIndex + 1) % NATION_ORDER.length;
-        const wrapped = nextIndex === 0;
-        return {
+        // advance to the next nation still in the war, detecting a full round
+        let idx = state.activeNationIndex;
+        let wrapped = false;
+        for (let steps = 0; steps < NATION_ORDER.length; steps++) {
+          idx = (idx + 1) % NATION_ORDER.length;
+          if (idx === 0) wrapped = true;
+          if (!state.eliminated.includes(NATION_ORDER[idx]!)) break;
+        }
+        const finishedRound = state.turn;
+        let next: FriedrichState = {
           ...state,
           version: state.version + 1,
-          activeNationIndex: nextIndex,
+          activeNationIndex: idx,
           turn: wrapped ? state.turn + 1 : state.turn,
           stageMoves: {}, // new stage: fresh move budget and ghosts
-          log: [...state.log, `${activeNationOf(state)} ends its stage; ${NATION_ORDER[nextIndex]} to act.`],
+          log: [...state.log, `${activeNationOf(state)} ends its stage; ${NATION_ORDER[idx]} to act.`],
         };
+        // from the end of turn 6, the Clock of Fate draws one card each turn
+        if (wrapped && finishedRound >= 6 && next.fateDeck.length > 0) {
+          next = drawFate(next);
+        }
+        return withWinner(next);
       }
 
       default: {

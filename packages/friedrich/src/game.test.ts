@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { IllegalActionError } from '@friedrich/engine';
 import { Friedrich } from './game.js';
+import { friedrichMap } from './map-data.js';
+import { checkVictory, objectivesOf } from './victory.js';
 import type { FriedrichState, FriedrichAction } from './state.js';
 
 const PLAYERS = ['p0', 'p1', 'p2', 'p3'];
@@ -101,6 +103,54 @@ test('ending a stage clears the move budget for the next nation', () => {
   s = act(s, { type: 'move', by: 'p0', pieceId: 'keith', to: 'meissen' });
   s = act(s, { type: 'endNationTurn', by: 'p0' });
   assert.deepEqual(s.stageMoves, {});
+});
+
+test('setup builds an 18-card Cards of Fate deck', () => {
+  const s = fresh();
+  assert.equal(s.fateDeck.length, 18);
+  assert.equal(s.fateDrawn.length, 0);
+  assert.equal(s.winner, null);
+});
+
+test('an attacker wins by holding all of its objective cities', () => {
+  const conquered: Record<string, 'france'> = {};
+  for (const id of objectivesOf('france')) conquered[id] = 'france';
+  const s: FriedrichState = { ...fresh(), conquered };
+  assert.deepEqual(checkVictory(s), { side: 'attacker', nation: 'france' });
+});
+
+test('Prussia wins by survival once Russia, Sweden and France are out', () => {
+  const s: FriedrichState = { ...fresh(), eliminated: ['russia', 'sweden', 'france'] };
+  assert.deepEqual(checkVictory(s), { side: 'defender' });
+});
+
+test('an attacker seizes its objective by occupying it', () => {
+  // put Daun on an empty neighbour of Breslau (an Austrian objective), then march in
+  const nbr = [...friedrichMap.adjacency.get('breslau')!].find(
+    (n) => !Object.values(fresh().pieces).some((p) => p.node === n),
+  )!;
+  let s = placed(fresh(), { daun: nbr });
+  // NATION_ORDER: prussia,hanover,russia,sweden,austria,… → 4 stage-ends reach Austria
+  for (let i = 0; i < 4; i++) s = act(s, { type: 'endNationTurn', by: 'p0' });
+  s = act(s, { type: 'move', by: 'p1', pieceId: 'daun', to: 'breslau' });
+  assert.equal(s.pieces['daun']?.node, 'breslau');
+  assert.equal(s.conquered['breslau'], 'austria', 'Breslau is now held by Austria');
+});
+
+test('the Clock of Fate starts drawing at the end of turn 6', () => {
+  let s = fresh();
+  const end = () => act(s, { type: 'endNationTurn', by: 'p0' });
+  for (let i = 0; i < 35; i++) s = end(); // through the end of turn 5
+  assert.equal(s.turn, 6);
+  assert.equal(s.fateDrawn.length, 0, 'no fate cards before turn 6');
+  for (let i = 0; i < 7; i++) s = end(); // finish turn 6
+  assert.equal(s.turn, 7);
+  assert.equal(s.fateDrawn.length, 1, 'one fate card drawn at the end of turn 6');
+});
+
+test('no actions are allowed once the war is decided', () => {
+  const s: FriedrichState = { ...fresh(), winner: { side: 'defender' } };
+  assert.throws(() => act(s, { type: 'endNationTurn', by: 'p0' }), IllegalActionError);
 });
 
 test('ending a nation stage advances to the next nation in order', () => {

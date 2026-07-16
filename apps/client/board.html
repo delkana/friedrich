@@ -166,6 +166,15 @@
       .banner.win { background: #14311d; border: 1px solid #2f7d43; color: #bfe6c9; }
       .banner.tie { background: #322c16; border: 1px solid #7d6f2f; color: #e6dcae; }
       .duel-controls { display: flex; align-items: center; gap: 12px; justify-content: center; margin-top: 8px; }
+
+      /* ---- victory screen ---- */
+      #gameover { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+        background: radial-gradient(70% 70% at 50% 40%, #1a1206ee, #000000f4); z-index: 30; }
+      #gameover.show { display: flex; }
+      #go-card { text-align: center; padding: 34px 46px; background: linear-gradient(#241a0e, #16110a);
+        border: 1px solid var(--gold-dim); border-radius: 8px; box-shadow: 0 24px 70px #000e, inset 0 1px 0 #ffffff12; }
+      .go-title { font-size: 20px; letter-spacing: 10px; text-transform: uppercase; color: var(--gold); margin-bottom: 10px; }
+      .go-msg { font-family: Georgia, serif; font-size: 22px; color: var(--parch); margin-bottom: 18px; max-width: 460px; }
     </style>
   </head>
   <body>
