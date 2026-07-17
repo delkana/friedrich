@@ -140,6 +140,43 @@ function applyCasualties(pieces: PieceMap, stack: readonly Piece[], casualties: 
   }
 }
 
+// ---- conquest (rule 5) ---------------------------------------------------
+
+/** How far a general can reach out and shield an objective (rule 5: 1, 2 or 3 cities). */
+export const PROTECT_RANGE = 3;
+
+/**
+ * Who defends the objectives in a city.
+ *
+ * "All nations are defending their home country, including all exclaves.
+ * Furthermore, Prussia is defending occupied Sachsen (Saxony). NOTE: Hanover
+ * does not defend any objectives in Prussia! Prussia does not defend any
+ * objectives in Hanover!" — so this is one NATION, not a side. Frederick's own
+ * two nations do not cover for each other.
+ *
+ * Saxony is the case that needs saying out loud: it is the Imperial Army's home
+ * country, and the Imperial Army's objectives are the ones in it, so its home
+ * cannot be what defends it. Prussia occupies it, and Prussia defends it.
+ */
+export function defendingNation(node: string): Nation | null {
+  const n = friedrichMap.nodes.get(node);
+  if (!n) return null;
+  return ((n.occupiedBy ?? n.home) as Nation) ?? null;
+}
+
+/**
+ * "It is protected if a general of the defending nation is positioned 1, 2 or 3
+ * cities away." Distance is plain road distance — a defender shields ground he
+ * could march to, whether or not the way is presently clear.
+ */
+export function objectiveProtected(state: FriedrichState, node: string): boolean {
+  const by = defendingNation(node);
+  if (!by) return false;
+  return Object.values(state.pieces).some(
+    (p) => p.nation === by && hopDistance(friedrichMap, p.node, node) <= PROTECT_RANGE,
+  );
+}
+
 // ---- what the table knows about enemy strength ---------------------------
 
 /**
@@ -660,13 +697,20 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           log.push(`${NationName(piece.nation)} captures a ${nationAdj(enemyTrain.nation)} supply train at ${dest.name}!`);
         }
 
-        // objective conquest: an attacker seizes its own objective by occupying
-        // it; a defender re-takes it by moving onto it
+        // Conquest (rule 5): a general takes an objective of his own colour by
+        // moving onto it — but only if it is UNPROTECTED at that moment. A single
+        // general of the defending nation standing within three cities is enough
+        // to hold the whole thing, which is the shape of the defensive game.
         let conquered = state.conquered;
         if (dest.objectiveFor) {
           if (piece.nation === dest.objectiveFor) {
-            conquered = { ...conquered, [action.to]: piece.nation };
-            log.push(`${NationName(piece.nation)} seizes ${dest.name}!`);
+            // the mover is already standing here, so ask the board as it was before
+            if (objectiveProtected(state, action.to)) {
+              log.push(`${dest.name} holds — ${nationName(defendingNation(action.to)!)} still covers it.`);
+            } else {
+              conquered = { ...conquered, [action.to]: piece.nation };
+              log.push(`${NationName(piece.nation)} seizes ${dest.name}!`);
+            }
           } else if (sideOf(piece.nation) === 'defender' && conquered[action.to]) {
             const c = { ...conquered };
             delete c[action.to];

@@ -87,6 +87,10 @@ const nodes = rec.cities.map((c) => {
   if (c.objectiveOrder) parts.push(`objectiveOrder: ${c.objectiveOrder}`);
   const home = c.id in HOME_OVERRIDE ? HOME_OVERRIDE[c.id] : HOME[c.tint];
   if (home) parts.push(`home: '${home}'`);
+  // Saxony is the Imperial Army's home country but Friedrich's army is sitting
+  // on it, which is why the board gives it its own shade — and why rule 5 says
+  // "Prussia is defending occupied Sachsen".
+  if (c.tint === 'saxony') parts.push(`occupiedBy: 'prussia'`);
   return `  { ${parts.join(', ')} },`;
 });
 

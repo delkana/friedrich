@@ -22,6 +22,7 @@ import {
   SECTOR_LINES,
   COASTLINE,
   HOME_COUNTRY,
+  OCCUPIED_SAXONY,
   type Polyline,
   NATION_ORDER,
   NATION_OF_ROLE,
@@ -70,6 +71,8 @@ const WASH_COLOR: Record<string, string> = {
   prussia: '#a8c8e6', hanover: '#cfe4ee', austria: '#e8e3d2',
   imperial: '#eddc93', sweden: '#a9cfa6',
 };
+/** Saxony: the Reich's yellow gone deeper, as the board prints it. */
+const OCCUPIED_COLOR = '#dcb84a';
 /** The border ink for each — the same hue, dark enough to read as a line. */
 const BORDER_COLOR: Record<string, string> = {
   prussia: '#3d6a97', hanover: '#6f9bb2', austria: '#9a8f6b',
@@ -320,6 +323,13 @@ function boardInner(): string {
       .join('') +
     '</g>';
 
+  // Saxony: Imperial home country, but Friedrich's army is on it and Prussia is
+  // what defends its objectives (rule 5), so the board gives it its own shade —
+  // drawn over the Imperial fill, inside the Imperial border.
+  const saxony =
+    `<path class="occupied-fill" fill="${OCCUPIED_COLOR}" d="${rings(OCCUPIED_SAXONY, true)}"/>` +
+    `<path class="occupied-edge" d="${rings(OCCUPIED_SAXONY, true)}"/>`;
+
   // the shores of the North Sea and the Baltic, traced off the printed board
   const coast = `<path class="coast" d="${rings(COASTLINE, false)}"/>`;
 
@@ -418,7 +428,7 @@ function boardInner(): string {
     .join('');
 
   // coast over the territory (it is the edge of the land), but under the roads
-  return ground + washes + coast + sectors + stamps + edges + ghosts + nodes + trains + pieces;
+  return ground + washes + saxony + coast + sectors + stamps + edges + ghosts + nodes + trains + pieces;
 }
 
 // ---- pan / zoom ----------------------------------------------------------
@@ -1019,6 +1029,13 @@ const HELP_HTML = `<div id="help-box">
       that's why the same card is decisive in one province and useless in the next. The side that is behind plays;
       the instant it draws level the turn passes. Whoever cannot or will not play <b>loses</b>, taking casualties
       equal to the gap and retreating that many cities.</p></section>
+    <section><h5>Taking objectives</h5><p>March a general onto an objective of his own colour and it is
+      yours — <b>unless it is protected</b>. One general of the <b>defending nation</b> standing within
+      <b>three cities</b> holds it, however big the army that walks in: you must draw the defender off or
+      destroy him first. Each nation defends its <b>own</b> home country only — Prussia does not cover
+      Hanover's objectives, nor Hanover Prussia's. <b>Saxony is the exception</b>: it is the Imperial Army's
+      home and every Imperial objective sits in it, so the deeper gold marks the ground <b>Prussia occupies
+      and defends</b>.</p></section>
     <section><h5>Retreat</h5><p>The loser retreats <b>exactly</b> as many cities as it lost troops, never twice
       through the same city and never through <b>any</b> piece — not even to take an undefended supply train.
       It must end up <b>as far from the winner as it can</b>, and the <b>winner</b> picks which of those cities.

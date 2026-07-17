@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { IllegalActionError, randomSeed } from '@friedrich/engine';
-import { Friedrich, suggestAllotment, depotsBlocked, reentrySites, HIDDEN_TROOPS } from './game.js';
+import { Friedrich, suggestAllotment, depotsBlocked, reentrySites, HIDDEN_TROOPS, objectiveProtected, defendingNation } from './game.js';
 import { NATION_ORDER } from './powers.js';
 import { TROOP_MAX, TROOP_PER_GENERAL_MAX, DEPOT_CITIES, substituteSites } from './pieces.js';
 import { friedrichMap } from './map-data.js';
@@ -498,17 +498,50 @@ test('France only withdraws after both the India and America cards are drawn', (
   assert.ok(s.winner, 'the war reaches a conclusion');
 });
 
-test('an attacker seizes its objective by occupying it', () => {
-  // march Daun into Breslau (an Austrian objective), which starts empty
-  const nbr = [...friedrichMap.adjacency.get('breslau')!].find(
-    (n) => !Object.values(fresh().pieces).some((p) => p.node === n),
-  )!;
-  let s = placed(fresh(), { daun: nbr });
-  // NATION_ORDER: prussia,hanover,russia,sweden,austria,… → 4 stage-ends reach Austria
+/** An empty city next to Breslau, to march Daun in from. */
+const besideBreslau = () =>
+  [...friedrichMap.adjacency.get('breslau')!].find((n) => !Object.values(fresh().pieces).some((p) => p.node === n))!;
+/** NATION_ORDER: prussia, hanover, russia, sweden, austria… → 4 stage-ends reach Austria. */
+const toAustria = (s: FriedrichState) => {
   for (let i = 0; i < 4; i++) s = act(s, { type: 'endNationTurn', by: 'p0' });
-  s = act(s, { type: 'move', by: 'p1', pieceId: 'daun', to: 'breslau' });
-  assert.equal(s.pieces['daun']?.node, 'breslau');
+  return s;
+};
+
+test('an objective holds while a defender stands within three cities', () => {
+  // Schwerin and Keith set up at Strehlen, right next door to Breslau
+  let s = placed(fresh(), { daun: besideBreslau() });
+  assert.equal(objectiveProtected(s, 'breslau'), true, 'Prussia covers Breslau from Strehlen');
+
+  s = act(toAustria(s), { type: 'move', by: 'p1', pieceId: 'daun', to: 'breslau' });
+  assert.equal(s.pieces['daun']?.node, 'breslau', 'Daun can still walk in');
+  assert.equal(s.conquered['breslau'], undefined, 'but he takes nothing — the city is protected');
+  assert.ok(s.log.some((l) => /Breslau holds/.test(l)));
+});
+
+test('an unprotected objective falls', () => {
+  // drive Silesia's garrison far away and Breslau is there for the taking
+  let s = placed(fresh(), { daun: besideBreslau(), schwerin: 'konigsberg', keith: 'konigsberg' });
+  assert.equal(objectiveProtected(s, 'breslau'), false);
+
+  s = act(toAustria(s), { type: 'move', by: 'p1', pieceId: 'daun', to: 'breslau' });
   assert.equal(s.conquered['breslau'], 'austria', 'Breslau is now held by Austria');
+});
+
+test('Prussia defends occupied Saxony — nobody else can', () => {
+  // Saxony is the Imperial Army's home country AND every one of its objectives,
+  // so its home cannot be what defends it. Rule 5: Prussia occupies it.
+  const dresden = friedrichMap.nodes.get('dresden')!;
+  assert.equal(dresden.home, 'imperial');
+  assert.equal(dresden.objectiveFor, 'imperial');
+  assert.equal(dresden.occupiedBy, 'prussia');
+  assert.equal(defendingNation('dresden'), 'prussia');
+
+  // elsewhere the defender is simply whoever's home country it is —
+  // "Hanover does not defend any objectives in Prussia! Prussia does not
+  // defend any objectives in Hanover!"
+  assert.equal(defendingNation('breslau'), 'prussia');
+  assert.equal(defendingNation('hannover'), 'hanover');
+  assert.equal(defendingNation('prag'), 'austria');
 });
 
 test('the Clock of Fate starts drawing at the end of turn 6', () => {

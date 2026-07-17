@@ -121,6 +121,7 @@ const cities = [...src.matchAll(/\{ id: '([^']+)', name: "[^"]*", suit: '[^']+',
   x: Number(m[2]),
   y: Number(m[3]),
   home: /home: '([a-z]+)'/.exec(m[4])?.[1] ?? null,
+  occupiedBy: /occupiedBy: '([a-z]+)'/.exec(m[4])?.[1] ?? null,
 }));
 if (cities.length < 600) throw new Error(`only parsed ${cities.length} cities from map-data.ts`);
 
@@ -283,6 +284,28 @@ for (const [i, home] of HOMES.entries()) {
   console.log(`  ${home.padEnd(9)} ${String(territory[home].length).padStart(3)} rings, ${pts} points`);
 }
 
+/**
+ * Saxony, drawn apart from the rest of the Reich as the board draws it. It IS
+ * Imperial home country — so it stays inside that outline — but Friedrich's army
+ * is sitting on it, and rule 5 makes Prussia the one who defends its objectives.
+ * The shading is the reminder.
+ */
+const occupiedMask = new Uint8Array(W * H);
+for (let y = 0; y < H; y++) {
+  for (let x = 0; x < W; x++) {
+    if (!land[idx(x, y)]) continue;
+    const bx = (x + 0.5) * SCALE, by = (y + 0.5) * SCALE;
+    let best = null, bd = Infinity;
+    for (const c of cities) {
+      const d = (c.x - bx) ** 2 + (c.y - by) ** 2;
+      if (d < bd) { bd = d; best = c; }
+    }
+    if (best.occupiedBy) occupiedMask[idx(x, y)] = 1;
+  }
+}
+const occupied = polylines(occupiedMask, { tol: 1.6, minPoints: 4, minExtent: 120 });
+console.log(`  occupied Saxony: ${occupied.length} rings, ${occupied.reduce((n, l) => n + l.length, 0)} points`);
+
 // ---- write it out --------------------------------------------------------
 
 const fmt = (lines) =>
@@ -314,6 +337,17 @@ ${fmt(coast)}
 export const HOME_COUNTRY: Readonly<Record<string, readonly Polyline[]>> = {
 ${HOMES.map((h) => `  ${h}: [\n${fmt(territory[h])}\n  ],`).join('\n')}
 };
+
+/**
+ * Saxony — the Imperial Army's home country with Friedrich's army standing on
+ * it. The board shades it apart from the rest of the Reich, and rule 5 says why:
+ * "Prussia is defending occupied Sachsen (Saxony)." Every one of the Imperial
+ * Army's ten objectives is in here, so this is the ground the whole Imperial war
+ * is about. It sits INSIDE HOME_COUNTRY.imperial, not beside it.
+ */
+export const OCCUPIED_SAXONY: readonly Polyline[] = [
+${fmt(occupied)}
+];
 `;
 writeFileSync(OUT, ts);
 console.log(`\nwrote ${OUT}`);

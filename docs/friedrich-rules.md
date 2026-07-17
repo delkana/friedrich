@@ -324,6 +324,25 @@ VASSAL setup stacks. Start sectors in parens (army-sheet grid refs).
   Note "another **player**", not another nation: pieces you control yourself can
   simply be marched away, so they block re-entry without earning you a substitute.
 
+## Conquest of objectives (rule 5)
+- A general conquers an objective **of his own colour** by moving onto it — but
+  **only if it is not protected at that moment**. "It is protected if a general
+  of the defending nation is positioned **1, 2 or 3 cities away**." One defender
+  holds the city against any force that merely walks in; you must draw him off or
+  kill him first. This is the backbone of Prussia's defensive game.
+- **The defending nation is one NATION, not a side.** "All nations are defending
+  their home country, including all exclaves. Furthermore, **Prussia is defending
+  occupied Sachsen (Saxony)**. NOTE: Hanover does not defend any objectives in
+  Prussia! Prussia does not defend any objectives in Hanover!"
+- So `defendingNation(node) = node.occupiedBy ?? node.home`. **Saxony is why
+  `occupiedBy` exists**: it is the Imperial Army's home country AND holds all ten
+  of its objectives, so its home cannot be what defends it — Prussia occupies it
+  and does. This is also why the board shades Saxony apart from the rest of the
+  Reich (`OCCUPIED_SAXONY` in geography.ts, drawn inside the Imperial border).
+- **Still not modelled:** conquest also happens when a general "moves over" an
+  objective in passing, or "starts his movement phase on it and moves away". We
+  only conquer on ending the move there.
+
 ## Home countries (rule 1) — and the map's geography
 - "All **dark-blue** areas (including all exclaves) are the home country of
   **Prussia**; all **light blue** areas are the home country of **Hanover**." The

@@ -19,6 +19,13 @@ export interface MapNode {
   readonly fortress?: boolean;
   /** Nation id whose home country this node lies in (always in supply there). */
   readonly home?: string;
+  /**
+   * Nation defending this node's objectives despite it not being their home —
+   * ground somebody else's army sits on. Friedrich's board draws such a region
+   * in its own shade, and rule 5 gives the reason: "Prussia is defending
+   * occupied Sachsen (Saxony)."
+   */
+  readonly occupiedBy?: string;
   /** Nation id this node is a victory objective for. */
   readonly objectiveFor?: string;
   /** 1 = first-order objective, 2 = second-order. */

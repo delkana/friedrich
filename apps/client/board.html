@@ -91,6 +91,12 @@
          border, because supply turns on which side of it a general stands */
       .home-fill { fill-rule: evenodd; opacity: .5; }
       .home-edge { fill: none; stroke-width: 9; opacity: .75; stroke-linejoin: round; }
+      /* occupied Saxony: still Imperial home, but Prussia holds it and defends
+         its objectives — a deeper shade inside the Imperial border, dashed to
+         say "occupied" rather than "another country" */
+      .occupied-fill { fill-rule: evenodd; opacity: .5; }
+      .occupied-edge { fill: none; stroke: #8a6a1e; stroke-width: 7; opacity: .7;
+        stroke-dasharray: 26 16; fill-rule: evenodd; }
       /* the shore itself — ink, like an engraved chart */
       .coast { fill: none; stroke: #6a5a3c; stroke-width: 8; stroke-linecap: round;
         stroke-linejoin: round; opacity: .65; }
