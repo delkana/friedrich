@@ -37,6 +37,36 @@ test('authoritative objectives are on the map with correct owners', () => {
   assert.equal(friedrichMap.nodes.get('konigsberg')?.objectiveFor, 'russia');
 });
 
+test('every nation that has a home country has one on the map', () => {
+  // Regression: the tint→home table keyed Hanover as 'hanover' while the board
+  // data spells it 'hannover', so all 49 of its cities silently lost their home
+  // country — its generals could never be in supply at home. The Imperial Army
+  // had the same hole: rule 1 gives it "all yellow territories, including
+  // Sachsen", but only Sachsen was mapped.
+  const count = (home: string) => NODES.filter((n) => n.home === home).length;
+  assert.ok(count('prussia') > 150, 'Prussia');
+  assert.ok(count('hanover') > 30, 'Hanover — light blue on the board, rule 1');
+  assert.ok(count('imperial') > 150, 'the Imperial Army — every yellow territory, not just Saxony');
+  assert.ok(count('austria') > 50, 'Austria');
+  assert.ok(count('sweden') > 0, 'Sweden');
+  // Russia and France have no home country at all
+  assert.equal(count('russia'), 0);
+  assert.equal(count('france'), 0);
+});
+
+test('each nation is at home where it starts', () => {
+  const home = (id: string) => friedrichMap.nodes.get(id)?.home;
+  assert.equal(home('hannover'), 'hanover');
+  assert.equal(home('stade'), 'hanover', "Ferdinand's set-up city");
+  assert.equal(home('hildburghausen'), 'imperial', "the Imperial general's own city");
+  assert.equal(home('erlangen'), 'imperial', "the Imperial Army's depot");
+  assert.equal(home('dresden'), 'imperial', 'Saxony is Imperial home too');
+  assert.equal(home('berlin'), 'prussia');
+  assert.equal(home('emden'), 'prussia', 'East Frisia, a Prussian exclave');
+  assert.equal(home('stralsund'), 'sweden');
+  assert.equal(home('warszawa'), undefined, 'Poland is nobody home');
+});
+
 test('the road network is one fully connected component', () => {
   // every starting piece must be able to reach Berlin (graph connectivity)
   const start = 'berlin';

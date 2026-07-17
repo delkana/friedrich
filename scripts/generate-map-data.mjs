@@ -35,8 +35,43 @@ for (const e of patches.addEdges ?? []) {
   existing.add(edgeKey(e.a, e.b));
 }
 
-// tint -> home nation (only tints that mean "home country" per the rules)
-const HOME = { prussia: 'prussia', saxony: 'imperial', austria: 'austria', hanover: 'hanover', sweden: 'sweden' };
+/**
+ * Board tint -> whose home country that ground is (rule 1).
+ *
+ * "All dark-blue areas (including all exclaves) are the home country of Prussia;
+ * all light blue areas are the home country of Hanover" — the board really does
+ * use two blues, Prussia #9CD3F1 against Hanover's paler #D3EAF2.
+ *
+ * "The home country of the Imperial Army is all yellow territories, INCLUDING
+ * Sachsen" — so the Reich's yellow (#F6E87E) counts every bit as much as
+ * Saxony's gold (#F4DB65), and Hessen's is the same yellow again.
+ *
+ * The keys are the tints as the transcription spells them, which is why Hanover
+ * is `hannover` here: keying it `hanover` silently dropped all 49 of its cities
+ * on the floor and left its generals with no home country at all.
+ */
+const HOME = {
+  prussia: 'prussia',
+  hannover: 'hanover',
+  hre: 'imperial',
+  saxony: 'imperial',
+  hessen: 'imperial',
+  austria: 'austria',
+  sweden: 'sweden',
+  // poland is nobody's home country; Russia and France have none at all
+};
+
+/**
+ * Cities the tile transcription left untinted, read straight off the 6000px
+ * board instead (the colour sampled beside each one is given).
+ */
+const HOME_OVERRIDE = {
+  emden: 'prussia', // #90CAEF — East Frisia, Prussian since 1744
+  stassfurt: 'prussia', // #7EC1DC
+  goldberge: 'prussia', // #80CBEA — Silesia
+  'schonberg-501': 'austria', // #E8E1CA — Moravia
+  'ostrow-607': null, // #F1B89B — Poland: nobody's home
+};
 
 const nodes = rec.cities.map((c) => {
   const parts = [
@@ -50,7 +85,8 @@ const nodes = rec.cities.map((c) => {
   if (c.depot) parts.push('depot: true');
   if (c.objectiveFor) parts.push(`objectiveFor: '${c.objectiveFor}'`);
   if (c.objectiveOrder) parts.push(`objectiveOrder: ${c.objectiveOrder}`);
-  if (HOME[c.tint]) parts.push(`home: '${HOME[c.tint]}'`);
+  const home = c.id in HOME_OVERRIDE ? HOME_OVERRIDE[c.id] : HOME[c.tint];
+  if (home) parts.push(`home: '${home}'`);
   return `  { ${parts.join(', ')} },`;
 });
 
