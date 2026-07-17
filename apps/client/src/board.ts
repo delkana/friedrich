@@ -45,6 +45,7 @@ import {
   type FriedrichAction,
   type Nation,
   type Role,
+  type Sighting,
 } from '@friedrich/game';
 import { GameConnection } from './net.js';
 
@@ -71,7 +72,32 @@ const BOARD_H = 4000;
 
 // ---- state ---------------------------------------------------------------
 
-let state: FriedrichState = Friedrich.setup(randomSeed(), ['A', 'B', 'C', 'D']);
+/**
+ * Hotseat holds the true game here and renders `state` — the same redacted view
+ * an online player gets — so passing the device plays like the real thing: on
+ * Prussia's stage you see Prussia's counts and the enemy stays secret. Online,
+ * `truth` is unused: the server never sends it, which is the whole point.
+ */
+let truth: FriedrichState = Friedrich.setup(randomSeed(), ['A', 'B', 'C', 'D']);
+
+/** Whoever must act now — the seat the hotseat screen currently belongs to. */
+function actingSeat(t: FriedrichState): string {
+  const acting: Nation = t.pendingRetreat
+    ? t.pendingRetreat.chooser
+    : t.pendingDiscard
+      ? t.pendingDiscard.nation
+      : t.combat
+        ? (t.combat.duel.toMove === 'attacker' ? t.combat.attackerNation : t.combat.defenderNation)
+        : NATION_ORDER[t.activeNationIndex]!;
+  for (const [player, roles] of Object.entries(t.seats)) {
+    for (const r of roles) if (NATION_OF_ROLE[r as Role].includes(acting)) return player;
+  }
+  return t.players[0]!;
+}
+
+const localView = (t: FriedrichState): FriedrichState => Friedrich.redact(t, actingSeat(t));
+
+let state: FriedrichState = localView(truth);
 let selected: string | null = null;
 let selectedTrain: string | null = null;
 let hovered: string | null = null; // inspect a stack without selecting it
@@ -122,7 +148,8 @@ function dispatch(action: WithoutBy<FriedrichAction>): void {
     return; // authoritative server replies with new state
   }
   try {
-    state = Friedrich.reducer(state, { ...action, by: 'local' } as FriedrichAction);
+    truth = Friedrich.reducer(truth, { ...action, by: actingSeat(truth) } as FriedrichAction);
+    state = localView(truth);
   } catch (e) {
     flashStatus(e instanceof Error ? e.message : String(e));
   }
@@ -131,6 +158,32 @@ function dispatch(action: WithoutBy<FriedrichAction>): void {
 }
 
 // ---- map geometry --------------------------------------------------------
+
+/**
+ * What this player may say about a general's strength.
+ *
+ * Your own generals read out plainly. An enemy's is secret until a battle makes
+ * him declare it, and even then a stack only ever declares its total — the split
+ * inside stays private — so a number is only ever pinned to a general who fought
+ * alone. `4?` means "4 when last declared, but his nation has recruited since,
+ * and nobody said who got the troops".
+ */
+function strengthText(p: Piece): string {
+  if (p.troops !== HIDDEN_TROOPS) return String(p.troops);
+  const seen = state.sightings[p.id];
+  if (!seen || seen.with.length > 0) return '?'; // never declared, or pooled in a stack
+  return seen.certain ? String(seen.total) : `${seen.total}?`;
+}
+
+/** The last declared total for the stack `p` stands in, if it still means anything. */
+function stackSighting(p: Piece): Sighting | null {
+  const seen = state.sightings[p.id];
+  if (!seen) return null;
+  // only meaningful while the stack is exactly the one that declared
+  const here = piecesAt(p.node).filter((x) => x.nation === p.nation).map((x) => x.id).sort();
+  const then = [p.id, ...seen.with].sort();
+  return here.length === then.length && here.every((id, i) => id === then[i]) ? seen : null;
+}
 
 /** Where a general could march: 3 cities (4 all-main), no passing pieces. */
 function generalReach(p: Piece): Set<string> {
@@ -323,9 +376,7 @@ function boardInner(): string {
         raising ? 'raising' : '',
         p.id === allotHover ? 'allot-focus' : '',
       ].join(' ');
-      const troops = raising
-        ? String(allot.draft[p.id] ?? 0)
-        : p.troops === HIDDEN_TROOPS ? '?' : String(p.troops);
+      const troops = raising ? String(allot.draft[p.id] ?? 0) : strengthText(p);
       const cut = p.faceUp ? '' : `<circle cx="${px + 22 * k}" cy="${py - 22 * k}" r="${10 * k}" fill="#9e2b25" stroke="#1c140a" stroke-width="3"/>`;
       return `<g class="piece ${cls}" data-piece="${p.id}" style="${canSelect || isTarget ? '' : 'cursor:default'}">
         <circle cx="${px}" cy="${py}" r="${52 * k}" fill="none" pointer-events="all"/>
@@ -661,20 +712,32 @@ function armyPanel(): string {
   if (!p) return '';
   const node = friedrichMap.nodes.get(p.node)!;
   const stack = piecesAt(p.node).filter((x) => x.nation === p.nation).sort((a, b) => a.rank - b.rank);
-  const known = stack.filter((g) => g.troops !== HIDDEN_TROOPS);
-  const total = known.reduce((n, g) => n + g.troops, 0);
   const rows = stack
     .map((g) => `<div class="gen ${g.faceUp ? '' : 'cut'}">
         <span>${g.id === focus ? '▸ ' : ''}${g.id} <span style="opacity:.55">rank ${g.rank}</span></span>
-        <span>${g.troops === HIDDEN_TROOPS ? '?' : g.troops}${g.faceUp ? '' : ' ✳'}</span></div>`)
+        <span>${strengthText(g)}${g.faceUp ? '' : ' ✳'}</span></div>`)
     .join('');
   const cut = stack.some((g) => !g.faceUp)
     ? '<div style="color:#d98a84;font-size:11.5px;margin-top:6px">✳ out of supply — destroyed at its next supply phase unless resupplied</div>'
     : '';
   const obj = node.objectiveFor ? ` · objective of ${NATION_LABEL[node.objectiveFor as Nation]}` : '';
+  const gens = stack.length > 1 ? ` · ${stack.length} generals` : '';
   return `<h4>${NATION_LABEL[p.nation]}${hovered && hovered !== selected ? ' (inspecting)' : ''}</h4>
     <div class="where">${node.name} · ${SUIT_SYMBOL[node.suit]} ${node.suit}${obj}</div>
-    <div class="rows">${rows}<div class="tot">Strength ${total}${known.length < stack.length ? '+?' : ''} troops${stack.length > 1 ? ` · ${stack.length} generals` : ''}</div>${cut}${peekLegend(peekTargets().size)}</div>`;
+    <div class="rows">${rows}<div class="tot">${strengthLine(stack)}${gens}</div>${cut}${peekLegend(peekTargets().size)}</div>`;
+}
+
+/** The stack's strength as far as this player is entitled to know it. */
+function strengthLine(stack: readonly Piece[]): string {
+  if (stack.every((g) => g.troops !== HIDDEN_TROOPS)) {
+    return `Strength ${stack.reduce((n, g) => n + g.troops, 0)} troops`;
+  }
+  // an enemy: only a battle can have told us, and only the stack's total
+  const seen = stackSighting(stack[0]!);
+  if (!seen) return 'Strength unknown — never declared in battle';
+  return seen.certain
+    ? `Strength ${seen.total} troops — as declared in battle`
+    : `Strength was ${seen.total} — recruited since, so it may be higher`;
 }
 
 /** Key for the dashed amber rings, so a new colour on the map is never a mystery. */
@@ -901,6 +964,11 @@ const HELP_HTML = `<div id="help-box">
       It is only a look: nothing is selected and no turn is spent, so use it to measure what an enemy army
       threatens before you commit. Your own move options, once you select a general, are the
       <b>solid green</b> rings.</p></section>
+    <section><h5>What you may know</h5><p>Troop counts are <b>secret</b>. An enemy general shows <b>?</b> until
+      a battle makes him declare — that is the only moment strength becomes public, and a <b>stack declares
+      only its total</b>, never the split inside it. After that the counter shows what he declared, adjusted
+      for losses everyone saw. It turns <b>4?</b> once his nation recruits: the rules make the number bought
+      public but <b>not who received it</b>, so every one of that nation's generals might be the stronger.</p></section>
     <section><h5>Battle</h5><p>Strength = a general's <b>secret troops</b> + the <b>Tactical Cards</b> it plays.
       You may only play cards matching the <b>suit of the sector your general stands in</b> (Reserves are wild) —
       that's why the same card is decisive in one province and useless in the next. The side that is behind plays;
@@ -1184,7 +1252,7 @@ function onHudClick(e: Event): void {
   if (t.id === 'btn-recruit') { recruitOpen = true; recruit.troops = 0; recruit.trains = 0; recruit.cards.clear(); renderChrome(); return; }
   if (t.id === 'btn-undo') { if (selected) dispatch({ type: 'undoMove', pieceId: selected }); return; }
   if (t.id === 'btn-end') { selected = null; dispatch({ type: 'endNationTurn' }); return; }
-  if (t.id === 'btn-reset' || t.id === 'go-again') { state = Friedrich.setup(randomSeed(), ['A', 'B', 'C', 'D']); selected = null; renderMap(); renderChrome(); return; }
+  if (t.id === 'btn-reset' || t.id === 'go-again') { newLocalGame(); selected = null; renderMap(); renderChrome(); return; }
   if (t.id === 'zoom-in') return zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
   if (t.id === 'zoom-out') return zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
   if (t.id === 'zoom-fit') return fitView();
@@ -1376,9 +1444,17 @@ function renderLobby(stage: 'choose' | 'waiting'): void {
   }
 }
 
+/** Fresh hotseat game: a new shuffle, and the screen shows only the acting seat. */
+function newLocalGame(): void {
+  truth = Friedrich.setup(randomSeed(), ['A', 'B', 'C', 'D']);
+  state = localView(truth);
+  allotFramed = null;
+  for (const n of Object.keys(allotDraft)) delete allotDraft[n as Nation];
+}
+
 function startLocal(): void {
   mode = 'local';
-  state = Friedrich.setup(randomSeed(), ['A', 'B', 'C', 'D']);
+  newLocalGame();
   selected = null;
   document.getElementById('lobby')!.classList.remove('show');
   renderMap();

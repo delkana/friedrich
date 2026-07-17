@@ -38,7 +38,7 @@ import { retreatOptions } from './retreat.js';
 import { buildFateDeck, FATE_LABEL, type FateCard } from './fate.js';
 import { checkVictory } from './victory.js';
 import { runSupplyPhase } from './supply.js';
-import type { FriedrichState, FriedrichAction, CombatSub, Winner } from './state.js';
+import type { FriedrichState, FriedrichAction, CombatSub, Winner, Sighting } from './state.js';
 
 type PieceMap = Record<string, Piece>;
 
@@ -97,6 +97,34 @@ function applyCasualties(pieces: PieceMap, stack: readonly Piece[], casualties: 
     if (left <= 0) delete pieces[p.id];
     else pieces[p.id] = { ...cur, troops: left };
   }
+}
+
+// ---- what the table knows about enemy strength ---------------------------
+
+/**
+ * Record what a stack declared as it went into battle. The declaration is the
+ * stack's total; the split inside it stays private, so each member is tagged
+ * with who it was pooled with.
+ */
+function declare(sightings: FriedrichState['sightings'], stack: readonly Piece[]): Record<string, Sighting> {
+  const out = { ...sightings };
+  const total = stack.reduce((n, p) => n + p.troops, 0);
+  for (const p of stack) {
+    out[p.id] = { total, with: stack.filter((x) => x.id !== p.id).map((x) => x.id), certain: true };
+  }
+  return out;
+}
+
+/**
+ * A nation recruits: the rules make the number public but not who receives it,
+ * so every general it owns might now be stronger than last declared.
+ */
+function cloudSightings(sightings: FriedrichState['sightings'], pieces: PieceMap, nation: Nation): Record<string, Sighting> {
+  const out = { ...sightings };
+  for (const [id, s] of Object.entries(out)) {
+    if (pieces[id]?.nation === nation) out[id] = { ...s, certain: false };
+  }
+  return out;
 }
 
 function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichState {
@@ -164,7 +192,19 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
     if (!pieces[id]) offMap[id] = { id: p.id, nation: p.nation, rank: p.rank };
   }
 
-  return { ...state, version: state.version + 1, pieces, hands, playedSets, offMap, combat: null, pendingRetreat, log };
+  // The casualties and any general removed are there for all to see, so what the
+  // table knows stays exact: re-declare each surviving stack at its true strength
+  // and forget the pieces that left the board.
+  let sightings: Record<string, Sighting> = {};
+  for (const [id, s] of Object.entries(state.sightings)) if (pieces[id]) sightings[id] = s;
+  for (const node of new Set([combat.attackerNode, combat.defenderNode])) {
+    for (const nation of [combat.attackerNation, combat.defenderNation]) {
+      const stack = stackAt(pieces, node, nation);
+      if (stack.length) sightings = declare(sightings, stack);
+    }
+  }
+
+  return { ...state, version: state.version + 1, pieces, hands, playedSets, offMap, sightings, combat: null, pendingRetreat, log };
 }
 
 // ---- card draw + deck cycling --------------------------------------------
@@ -428,6 +468,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       setsUsed: 1,
       pendingDiscard: null,
       pendingRetreat: null,
+      sightings: {}, // nobody has shown anybody anything yet
       drawAllot: { ...BASE_DRAW },
       stageMoves: {},
       combat: null,
@@ -717,9 +758,13 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           delete offMap[general.id];
           log.push(`${general.id} returns to the field at ${where}.`);
         } else if (reinforce) {
+          // The log is public, so it must not say WHO was reinforced: "a player
+          // just says how many troops he is recruiting, but not which general(s)
+          // will receive them ... he has to tell the other players the new
+          // troops-total of his nation."
           pieces[reinforce.id] = { ...reinforce, troops: reinforce.troops + troops };
-          log.push(`${reinforce.id} is reinforced to ${reinforce.troops + troops} troops.`);
         }
+        if (troops > 0) log.push(`${properName(nation)} now commands ${onMap + troops} troops.`);
 
         let trains = state.trains;
         let offMapTrains = state.offMapTrains;
@@ -741,6 +786,9 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           trains,
           offMap,
           offMapTrains,
+          // the new troops went to a general nobody named, so every one of this
+          // nation's declared strengths is now only a "was"
+          sightings: troops > 0 ? cloudSightings(state.sightings, pieces, nation) : state.sightings,
           hands,
           playedSets,
           // a re-entering general may not move in the phase it returns
@@ -791,12 +839,21 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           defenderNation: def.nation,
           duel,
         };
+        // "the opposing players state how many troops their participating
+        // generals command" — the one moment strength becomes public
+        const sightings = declare(declare(state.sightings, atkStack), defStack);
+
         return {
           ...state,
           version: state.version + 1,
           combat,
+          sightings,
           stageMoves: {}, // committing to a battle finalizes this stage's moves
-          log: [...state.log, `${properName(atk.nation)} attacks ${properName(def.nation)} at ${cityName(def.node)}.`],
+          log: [
+            ...state.log,
+            `${properName(atk.nation)} attacks ${properName(def.nation)} at ${cityName(def.node)}.`,
+            `Strengths declared: ${properName(atk.nation)} ${sum(atkStack)}, ${properName(def.nation)} ${sum(defStack)}.`,
+          ],
         };
       }
 

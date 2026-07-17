@@ -7,6 +7,28 @@ import type { FateCard } from './fate.js';
 export type Winner = { readonly side: 'attacker'; readonly nation: Nation } | { readonly side: 'defender' };
 
 /**
+ * What the table has been shown about one general's strength.
+ *
+ * Troop counts are secret, and combat is the only thing that reveals them:
+ * "the opposing players state how many troops their participating generals
+ * command". That is said out loud, so a sighting is PUBLIC knowledge — not
+ * per-viewer — and it is the STACK's total, never the private split inside it.
+ * A general is therefore only pinned to an exact number if he fought alone.
+ */
+export interface Sighting {
+  /** The strength declared: this general's, or the whole stack's if `with` is set. */
+  readonly total: number;
+  /** The others who shared that declared total ([] if he stood alone). */
+  readonly with: readonly string[];
+  /**
+   * False once the number could have changed without being shown — the rules
+   * make a nation's recruiting public but not which general received the troops,
+   * so one recruit clouds every general it owns.
+   */
+  readonly certain: boolean;
+}
+
+/**
  * An in-progress battle. The duel state machine (engine) does the scoring; this
  * wrapper remembers which stacks and nations are fighting so the result can be
  * applied back to the board. Only one battle is resolved at a time.
@@ -89,6 +111,11 @@ export interface FriedrichState extends BaseState {
   readonly stageMoves: Readonly<Record<string, string>>;
   /** The battle being resolved, if any (blocks movement until finished). */
   readonly combat: CombatSub | null;
+  /**
+   * Public knowledge of enemy strength, by general id: what a battle declared,
+   * and whether it can still be trusted. Absent = never seen.
+   */
+  readonly sightings: Readonly<Record<string, Sighting>>;
   /** Objective city id → the attacker nation that currently holds it. */
   readonly conquered: Readonly<Record<string, Nation>>;
   /** Nations forced out of the war by the Cards of Fate. */

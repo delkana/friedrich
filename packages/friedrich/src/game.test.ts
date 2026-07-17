@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { IllegalActionError, randomSeed } from '@friedrich/engine';
-import { Friedrich, suggestAllotment, depotsBlocked, reentrySites } from './game.js';
+import { Friedrich, suggestAllotment, depotsBlocked, reentrySites, HIDDEN_TROOPS } from './game.js';
 import { NATION_ORDER } from './powers.js';
 import { TROOP_MAX, TROOP_PER_GENERAL_MAX, DEPOT_CITIES, substituteSites } from './pieces.js';
 import { friedrichMap } from './map-data.js';
@@ -318,6 +318,70 @@ test('a beaten stack retreats together and keeps its ranks', () => {
   assert.equal(s.offMap['winterfeldt']?.nation, 'prussia', 'and can be recruited back later');
   assert.equal(s.pieces['friedrich']?.troops, 3, 'the rest comes off the survivor');
   assert.notEqual(s.pieces['friedrich']?.node, 'oschatz', 'which retreated');
+});
+
+test('strength stays secret until a battle declares it', () => {
+  const s = armed(placed(fresh(), { browne: 'riesa', winterfeldt: 'wurzen' }), { friedrich: 4, browne: 6 });
+  assert.deepEqual(s.sightings, {}, 'nobody has shown anybody anything at set-up');
+
+  const fought = act(s, { type: 'attack', by: 'p0', attackerId: 'friedrich', defenderId: 'browne' });
+  // "the opposing players state how many troops their participating generals command"
+  assert.deepEqual(fought.sightings['friedrich'], { total: 4, with: [], certain: true });
+  assert.deepEqual(fought.sightings['browne'], { total: 6, with: [], certain: true });
+  assert.equal(fought.sightings['winterfeldt'], undefined, 'a general who did not fight declared nothing');
+  assert.ok(fought.log.some((l) => /Strengths declared: Prussia 4, Austria 6/.test(l)));
+});
+
+test('a stack declares its total, never the split inside it', () => {
+  let s = armed(placed(fresh(), { browne: 'riesa' }), { friedrich: 4, winterfeldt: 5, browne: 6 });
+  s = act(s, { type: 'attack', by: 'p0', attackerId: 'friedrich', defenderId: 'browne' });
+
+  // Friedrich and Winterfeldt declared 9 between them — 4+5 stays private
+  assert.deepEqual(s.sightings['friedrich'], { total: 9, with: ['winterfeldt'], certain: true });
+  assert.deepEqual(s.sightings['winterfeldt'], { total: 9, with: ['friedrich'], certain: true });
+});
+
+test('after a battle the survivors are still known exactly — casualties are public', () => {
+  let s = armed(placed(fresh(), { browne: 'riesa', winterfeldt: 'wurzen' }), { friedrich: 4, browne: 6 });
+  s = act(s, { type: 'attack', by: 'p0', attackerId: 'friedrich', defenderId: 'browne' });
+  s = act(s, { type: 'combatPass', by: 'p0' }); // Friedrich concedes, losing the 2-troop gap
+  s = resolveRetreat(s);
+
+  assert.equal(s.pieces['friedrich']?.troops, 2);
+  assert.deepEqual(s.sightings['friedrich'], { total: 2, with: [], certain: true }, 'the loss was there for all to see');
+  assert.deepEqual(s.sightings['browne'], { total: 6, with: [], certain: true }, 'the winner lost nothing');
+});
+
+test('recruiting clouds every general that nation owns', () => {
+  let s = armed(placed(fresh(), { browne: 'riesa', winterfeldt: 'wurzen' }), { friedrich: 4, browne: 6 });
+  s = act(s, { type: 'attack', by: 'p0', attackerId: 'friedrich', defenderId: 'browne' });
+  s = act(s, { type: 'combatPass', by: 'p0' });
+  s = resolveRetreat(s);
+  assert.equal(s.sightings['friedrich']?.certain, true);
+
+  // Prussia recruits: the rules make the number public but not who receives it
+  s = withHand(s, 'prussia', [13]);
+  s = act(s, { type: 'recruit', by: 'p0', reinforceId: 'heinrich', troops: 2, trains: 0, cardIds: ['pay-0'] });
+
+  assert.deepEqual(s.sightings['friedrich'], { total: 2, with: [], certain: false }, 'Friedrich might be the one reinforced');
+  assert.equal(s.sightings['browne']?.certain, true, "Austria's declaration is untouched by Prussia recruiting");
+  assert.ok(!s.log.some((l) => /heinrich/i.test(l)), 'the public log must not name who was reinforced');
+  // 32 at set-up, 2 lost in the battle, 2 bought back
+  assert.ok(s.log.some((l) => /Prussia now commands 32 troops/.test(l)), 'but the nation-wide total is public');
+});
+
+test('a player is shown enemy strength only as far as the table has seen it', () => {
+  let s = armed(placed(fresh(), { browne: 'riesa', winterfeldt: 'wurzen' }), { friedrich: 4, browne: 6 });
+  const austria = s.players.find((p) => (s.seats[p] ?? []).includes('mariaTheresa'))!;
+
+  const before = Friedrich.redact(s, austria);
+  assert.equal(before.pieces['friedrich']?.troops, HIDDEN_TROOPS, 'Prussia is a closed book');
+  assert.deepEqual(before.sightings, {});
+
+  s = act(s, { type: 'attack', by: 'p0', attackerId: 'friedrich', defenderId: 'browne' });
+  const after = Friedrich.redact(s, austria);
+  assert.equal(after.pieces['friedrich']?.troops, HIDDEN_TROOPS, 'the counter itself stays hidden');
+  assert.deepEqual(after.sightings['friedrich'], { total: 4, with: [], certain: true }, 'but the declaration is public');
 });
 
 test('movement is rejected onto an enemy city, out of range, or out of turn', () => {
