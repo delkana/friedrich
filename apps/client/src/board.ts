@@ -397,7 +397,21 @@ function setupPanZoom(): void {
   let pinchDist = 0;
   let pinchMid = { x: 0, y: 0 };
 
+  /**
+   * Take the pointer only once a pan/pinch is really under way.
+   *
+   * Capturing on pointerdown breaks every HUD button: the panels live INSIDE
+   * the map pane, and a captured pointer retargets its pointerdown/pointerup —
+   * and therefore the click — to the pane itself, so the click never propagates
+   * down to #hud and the delegated handler never runs.
+   */
+  const grabPointer = (id: number) => {
+    try { if (!el.hasPointerCapture(id)) el.setPointerCapture(id); } catch { /* ignore */ }
+  };
+
   el.addEventListener('pointerdown', (e) => {
+    // a press on the HUD belongs to the HUD — don't pan the map with it
+    if ((e.target as Element).closest?.('#hud')) return;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     didGesture = false; // always start a fresh gesture — never inherit a prior drag's suppression
     if (pts.size === 1) {
@@ -406,7 +420,6 @@ function setupPanZoom(): void {
       last = { ...start };
     }
     if (pts.size === 2) pinchDist = 0;
-    try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
   });
 
   el.addEventListener('pointermove', (e) => {
@@ -421,6 +434,7 @@ function setupPanZoom(): void {
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       if (pinchDist > 0) {
         didGesture = true;
+        for (const id of pts.keys()) grabPointer(id); // the pinch owns the pointers now
         panByPx(mid.x - pinchMid.x, mid.y - pinchMid.y);      // follow the fingers
         if (dist > 0) zoomAt(mid.x, mid.y, pinchDist / dist);  // pinch = zoom
       }
@@ -433,6 +447,7 @@ function setupPanZoom(): void {
     // only start panning once the pointer has clearly moved (total, from the press)
     if (!didGesture && Math.hypot(cur.x - start.x, cur.y - start.y) < DRAG_THRESHOLD) return;
     didGesture = true;
+    grabPointer(e.pointerId); // now the drag is real, follow it outside the pane
     el.classList.add('grabbing');
     panByPx(cur.x - last.x, cur.y - last.y);
     last = cur;
