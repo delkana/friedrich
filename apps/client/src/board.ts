@@ -379,9 +379,9 @@ function boardInner(): string {
       const troops = raising ? String(allot.draft[p.id] ?? 0) : strengthText(p);
       const cut = p.faceUp ? '' : `<circle cx="${px + 22 * k}" cy="${py - 22 * k}" r="${10 * k}" fill="#9e2b25" stroke="#1c140a" stroke-width="3"/>`;
       return `<g class="piece ${cls}" data-piece="${p.id}" style="${canSelect || isTarget ? '' : 'cursor:default'}">
-        <circle cx="${px}" cy="${py}" r="${52 * k}" fill="none" pointer-events="all"/>
+        <circle class="hit" cx="${px}" cy="${py}" r="${52 * k}" pointer-events="all"/>
         <circle class="ring" cx="${px}" cy="${py}" r="${34 * k}"/>
-        <circle cx="${px}" cy="${py}" r="${25 * k}" fill="${NATION_COLOR[p.nation]}"/>
+        <circle class="disc" cx="${px}" cy="${py}" r="${25 * k}" fill="${NATION_COLOR[p.nation]}"/>
         <text class="ptext" x="${px}" y="${py + 11 * k}" style="font-size:${30 * k}px">${troops}</text>${cut}</g>`;
     }))
     .join('');

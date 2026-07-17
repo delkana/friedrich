@@ -108,15 +108,21 @@
       /* During set-up the army being raised stands out, and the general whose row
          you are hovering is picked out of it. These widths are in board units on
          a view zoomed out to hold a whole army, hence the big numbers. */
+      /* A counter is three circles, and each has exactly one job:
+         .hit  — the click target, generously large and NEVER painted
+         .ring — a halo, drawn only when it says something (selected / a foe you
+                 can attack / the army you are raising)
+         .disc — the counter you actually see */
+      .piece .hit { fill: none; stroke: none; }
+      .piece .ring { fill: none; stroke: none; }
+      .piece .disc { stroke: #1c140a; stroke-width: 5; }
+      .piece.sel .disc { stroke: #e8c24a; stroke-width: 11; }
+      .piece.target .disc { stroke: #d64a3f; stroke-width: 11; }
+      .piece.sel .ring { stroke: #e8c24a; stroke-width: 5; opacity: .6; }
+      .piece.target .ring { stroke: #d64a3f; stroke-width: 5; opacity: .6; }
       .piece.raising .ring { stroke: var(--gold); stroke-width: 18; }
       .piece.allot-focus .ring { stroke: #fff6dc; stroke-width: 40; }
       .piece.allot-focus { filter: drop-shadow(0 0 60px #ffe9a8) drop-shadow(0 0 24px #ffe9a8); }
-      .piece circle { stroke: #1c140a; stroke-width: 5; }
-      .piece.sel circle { stroke: #e8c24a !important; stroke-width: 11; }
-      .piece.target circle { stroke: #d64a3f !important; stroke-width: 11; }
-      .piece .ring { fill: none; }
-      .piece.sel .ring { stroke: #e8c24a; stroke-width: 5; opacity: .6; }
-      .piece.target .ring { stroke: #d64a3f; stroke-width: 5; opacity: .6; }
       .ptext { fill: #f7f1df; font-size: 30px; font-weight: 700; text-anchor: middle; pointer-events: none; font-family: Georgia, serif; }
 
       /* ---- HUD overlay ---- */
