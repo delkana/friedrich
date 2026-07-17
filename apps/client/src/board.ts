@@ -125,6 +125,13 @@ function moveTargets(): Set<string> {
   const targets = new Set<string>();
   if (state.combat) return targets;
 
+  // the winner is picking where it drives the beaten stack: those are the only
+  // legal clicks on the board right now
+  if (state.pendingRetreat) {
+    if (canControl(state.pendingRetreat.chooser)) for (const n of state.pendingRetreat.options) targets.add(n);
+    return targets;
+  }
+
   // a selected supply train: range 2 cities (3 all-main), no enemy destinations
   if (selectedTrain) {
     const t = state.trains[selectedTrain];
@@ -732,6 +739,11 @@ const HELP_HTML = `<div id="help-box">
       that's why the same card is decisive in one province and useless in the next. The side that is behind plays;
       the instant it draws level the turn passes. Whoever cannot or will not play <b>loses</b>, taking casualties
       equal to the gap and retreating that many cities.</p></section>
+    <section><h5>Retreat</h5><p>The loser retreats <b>exactly</b> as many cities as it lost troops, never twice
+      through the same city and never through <b>any</b> piece — not even to take an undefended supply train.
+      It must end up <b>as far from the winner as it can</b>, and the <b>winner</b> picks which of those cities.
+      A stack that cannot go the full distance is <b>wiped out</b>, so being cornered is deadlier than being
+      outnumbered.</p></section>
     <section><h5>Supply</h5><p>A general is in supply in its <b>home country</b>, or if it can trace ≤6 cities —
       never through an enemy — to one of its <b>supply trains</b>. Cut off, it flips face-down (red dot);
       if it is still cut off at its next supply phase it is <b>destroyed</b>. Russia and France have no home
@@ -764,13 +776,18 @@ function renderChrome(): void {
   log.scrollTop = log.scrollHeight;
 
   const inSetup = state.phase === 'setup' && !state.winner;
-  const myTurn = canControl(nation) && !inSetup && !state.pendingDiscard;
+  const myTurn = canControl(nation) && !inSetup && !state.pendingDiscard && !state.pendingRetreat;
   const selMoved = selected != null && state.stageMoves[selected] !== undefined;
+  const retreat = state.pendingRetreat;
   const status = document.getElementById('status-line')!;
   status.textContent = inSetup
     ? 'The armies are being raised…'
     : state.pendingDiscard
     ? `${NATION_LABEL[state.pendingDiscard.nation]} must discard a card…`
+    : retreat
+    ? canControl(retreat.chooser)
+      ? `You beat ${NATION_LABEL[retreat.nation]} — click a highlighted city to drive it back to`
+      : `${NATION_LABEL[retreat.chooser]} is choosing where ${NATION_LABEL[retreat.nation]} retreats…`
     : state.combat
     ? 'Battle underway…'
     : !myTurn
@@ -860,6 +877,14 @@ function renderMap(): void {
 function onBoardClick(e: Event): void {
   if (state.combat) return;
   const target = e.target as Element;
+
+  // settling a retreat: the only thing you can do is name one of the offered cities
+  if (state.pendingRetreat) {
+    const node = target.closest('[data-node]')?.getAttribute('data-node');
+    if (node && moveTargets().has(node)) dispatch({ type: 'chooseRetreat', node });
+    return;
+  }
+
   const pieceEl = target.closest('[data-piece]');
   if (pieceEl) return onPieceClick(pieceEl.getAttribute('data-piece')!);
   const trainEl = target.closest('[data-train]');

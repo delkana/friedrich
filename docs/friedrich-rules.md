@@ -66,10 +66,17 @@ This is the spec the engine is built against. Confidence levels noted at the end
      general is **defeated**. On exact tie score of 0 the attacker plays first;
      if a player gets the right to play at 0 and holds a matching card they
      **must** play it; no matching card + declines Reserve → **tie, no losses**.
-- Casualties/retreat: **winner loses nothing, stays put.** Loser's casualties =
-  final negative score (capped at troops). **Retreat distance = troops lost**;
-  winner picks path, loser ends as far from winner as possible, no re-entering a
-  city, no passing pieces — if it can't complete, loser is **wiped out**.
+- Casualties/retreat (rule 8): **winner loses nothing, stays put.** Loser's
+  casualties = final negative score (capped at troops). **Retreat distance =
+  troops lost, exactly** — a stack never splits, never enters a city twice, and
+  may not enter or pass through a city holding **any** piece (enemy or friendly,
+  general or supply train — not even to destroy the train). It may pass through
+  an objective city but does not (re-)conquer it. It must **finish as far from
+  the winning general as possible** (only that general matters), and the
+  **winner chooses the path**. Cannot go the full distance ⇒ **wiped out**.
+  - Note the path itself has no lasting effect, and the endpoint is forced to be
+    maximally far, so the winner's choice only bites when destinations tie —
+    which is exactly when the engine asks (`pendingRetreat`).
 
 ## Draw allotments (per nation, start of its action stage)
 Prussia 7 (4+3), Hanover 2 (1+1), Russia 4, Sweden 1, Austria 5 (4+1),
@@ -273,11 +280,11 @@ VASSAL setup stacks. Start sectors in parens (army-sheet grid refs).
 Deliberate simplifications still in the code. None is load-bearing for a playable
 game, but each is a real difference a rules lawyer would catch.
 
-- **Retreat path is not chosen by the winner.** The loser is placed on the
-  reachable empty city farthest from the winner; the rules give the winner the
-  choice of path.
 - **No substitute recruitment site.** If every depot is blocked, the rules allow
   recruiting elsewhere at a premium (8 points); we simply refuse.
+- **Fixed-length retreat search is bounded.** Enumerating simple paths of an
+  exact length is exponential in the worst case, so `retreat.ts` caps the search
+  (400k steps). Real retreats are ≤8 cities and never come close.
 
 ## Confidence
 - **High:** player counts/groupings, no-TV combat, card face, suit/sector rule,

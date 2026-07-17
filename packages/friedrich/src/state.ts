@@ -64,6 +64,20 @@ export interface FriedrichState extends BaseState {
    * and hidden from everyone else.
    */
   readonly pendingDiscard: { readonly nation: Nation; readonly cardIds: readonly string[] } | null;
+  /**
+   * A beaten stack waiting to be retreated. The winner picks the path (rule 8),
+   * which only matters when several legal destinations are equally far from it;
+   * a single option is applied without asking.
+   */
+  readonly pendingRetreat: {
+    /** The nation doing the retreating. */
+    readonly nation: Nation;
+    /** The winner, who chooses. */
+    readonly chooser: Nation;
+    readonly pieceIds: readonly string[];
+    readonly from: string;
+    readonly options: readonly string[];
+  } | null;
   /** Cards each nation draws at the start of its stage (reduced by some Cards of Fate). */
   readonly drawAllot: Readonly<Record<Nation, number>>;
   /**
@@ -110,6 +124,8 @@ export type FriedrichAction =
     } & BaseAction)
   /** France: choose which of the cards it just drew to discard face-down. */
   | ({ type: 'discardCard'; cardId: string } & BaseAction)
+  /** The battle's winner picks where the beaten stack ends its retreat. */
+  | ({ type: 'chooseRetreat'; node: string } & BaseAction)
   | ({ type: 'undoMove'; pieceId: string } & BaseAction)
   | ({ type: 'attack'; attackerId: string; defenderId: string } & BaseAction)
   | ({ type: 'combatPlay'; cardId: string; reserve?: ReservePlay } & BaseAction)

@@ -29,6 +29,10 @@ const endStage = (s: FriedrichState): FriedrichState => {
     : next;
 };
 
+/** Answer a pending retreat by taking the first legal destination offered. */
+const resolveRetreat = (s: FriedrichState): FriedrichState =>
+  s.pendingRetreat ? act(s, { type: 'chooseRetreat', by: 'p0', node: s.pendingRetreat.options[0]! }) : s;
+
 /** A game paused at set-up, before anyone has allotted troops. */
 const rawSetup = (): FriedrichState => Friedrich.setup('seed-1', PLAYERS);
 
@@ -242,6 +246,10 @@ test('an outnumbered attacker who concedes takes the gap as casualties and retre
   s = act(s, { type: 'combatPass', by: 'p0' }); // friedrich accepts defeat
   assert.equal(s.combat, null, 'battle resolved');
   assert.equal(s.pieces['friedrich']?.troops, 2, 'lost the 2-troop gap');
+  // the winner picks where the beaten stack ends up
+  assert.equal(s.pendingRetreat?.chooser, 'austria');
+  assert.equal(s.pendingRetreat?.nation, 'prussia');
+  s = resolveRetreat(s);
   assert.notEqual(s.pieces['friedrich']?.node, 'oschatz', 'retreated off Oschatz');
   assert.equal(s.pieces['browne']?.troops, 6, 'winner loses nothing');
   assert.equal(s.pieces['browne']?.node, 'riesa', 'winner holds its ground');
@@ -257,9 +265,44 @@ test('stacking to outnumber the enemy makes the defender lose and retreat', () =
   s = act(s, { type: 'combatPass', by: 'p0' }); // browne concedes 3
   assert.equal(s.combat, null);
   assert.equal(s.pieces['browne']?.troops, 3, 'lost exactly the 3-troop gap');
+  s = resolveRetreat(s);
   assert.notEqual(s.pieces['browne']?.node, 'riesa', 'defender retreated');
   assert.equal(s.pieces['friedrich']?.node, 'oschatz', 'attacker holds its ground');
   assert.equal(s.pieces['winterfeldt']?.troops, 5, 'winner loses nothing');
+});
+
+test('nothing else happens until the pending retreat is settled', () => {
+  let s = armed(placed(fresh(), { browne: 'riesa', winterfeldt: 'wurzen' }), { friedrich: 4, browne: 6 });
+  s = act(s, { type: 'attack', by: 'p0', attackerId: 'friedrich', defenderId: 'browne' });
+  s = act(s, { type: 'combatPass', by: 'p0' });
+
+  const pending = s.pendingRetreat!;
+  assert.ok(pending.options.length > 1, 'several destinations tie, so the winner really chooses');
+  assert.ok(!pending.options.includes('oschatz'), 'and none of them is where the battle was');
+
+  // the game is held up until the choice is made ("retreat before the next combat")
+  assert.throws(() => act(s, { type: 'endNationTurn', by: 'p0' }), IllegalActionError);
+  assert.throws(() => act(s, { type: 'chooseRetreat', by: 'p0', node: 'berlin' }), IllegalActionError);
+
+  const dest = pending.options[1]!;
+  s = act(s, { type: 'chooseRetreat', by: 'p0', node: dest });
+  assert.equal(s.pendingRetreat, null);
+  assert.equal(s.pieces['friedrich']?.node, dest, 'the winner put the loser where it wanted');
+  act(s, { type: 'endNationTurn', by: 'p0' }); // play resumes
+});
+
+test('a beaten stack retreats together and keeps its ranks', () => {
+  // Friedrich (4) + Winterfeldt (2) at Oschatz lose to Browne (9): 3 casualties
+  let s = armed(placed(fresh(), { browne: 'riesa' }), { friedrich: 4, winterfeldt: 2, browne: 9 });
+  s = act(s, { type: 'attack', by: 'p0', attackerId: 'friedrich', defenderId: 'browne' });
+  s = act(s, { type: 'combatPass', by: 'p0' });
+  s = resolveRetreat(s);
+
+  // casualties come off the bottom of the stack: Winterfeldt (rank 2) goes first
+  assert.equal(s.pieces['winterfeldt'], undefined, 'the junior general is removed');
+  assert.equal(s.offMap['winterfeldt']?.nation, 'prussia', 'and can be recruited back later');
+  assert.equal(s.pieces['friedrich']?.troops, 3, 'the rest comes off the survivor');
+  assert.notEqual(s.pieces['friedrich']?.node, 'oschatz', 'which retreated');
 });
 
 test('movement is rejected onto an enemy city, out of range, or out of turn', () => {

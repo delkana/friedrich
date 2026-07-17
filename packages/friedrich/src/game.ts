@@ -32,6 +32,7 @@ import {
   type Train,
 } from './pieces.js';
 import { friedrichMap } from './map-data.js';
+import { retreatOptions } from './retreat.js';
 import { buildFateDeck, FATE_LABEL, type FateCard } from './fate.js';
 import { checkVictory } from './victory.js';
 import { runSupplyPhase } from './supply.js';
@@ -96,28 +97,6 @@ function applyCasualties(pieces: PieceMap, stack: readonly Piece[], casualties: 
   }
 }
 
-/**
- * SIMPLIFIED retreat: pick an empty city reachable within `distance` cities
- * (no passing through pieces) that is as far as possible from the winner. The
- * exact rule (retreat the full distance, winner picks the path, never re-enter a
- * city) is approximated here; returns null if nowhere to go.
- */
-function retreatNode(pieces: PieceMap, from: string, winner: string, distance: number): string | null {
-  const occ = occupiedNodes(pieces);
-  const reach = reachableNodes(friedrichMap, from, occ, { maxSteps: distance, maxStepsMainRoad: distance });
-  let best: string | null = null;
-  let bestDist = -1;
-  for (const node of reach.keys()) {
-    if (occ.has(node)) continue; // retreat only to an empty city
-    const d = hopDistance(friedrichMap, node, winner);
-    if (d > bestDist) {
-      bestDist = d;
-      best = node;
-    }
-  }
-  return best;
-}
-
 function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichState {
   const duel = combat.duel;
   const r = duel.result!;
@@ -137,11 +116,13 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
   ]);
   const pieces: PieceMap = { ...state.pieces };
   const log = [...state.log];
+  let pendingRetreat: FriedrichState['pendingRetreat'] = null;
 
   if (r.outcome === 'tie') {
     log.push('Battle tied — both sides hold.');
   } else {
     const loserNation = r.loser === 'attacker' ? combat.attackerNation : combat.defenderNation;
+    const winnerNation = r.loser === 'attacker' ? combat.defenderNation : combat.attackerNation;
     const loserNode = r.loser === 'attacker' ? combat.attackerNode : combat.defenderNode;
     const winnerNode = r.loser === 'attacker' ? combat.defenderNode : combat.attackerNode;
     const stack = stackAt(pieces, loserNode, loserNation);
@@ -152,13 +133,25 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
     } else {
       applyCasualties(pieces, stack, r.casualties);
       const survivors = stack.filter((p) => pieces[p.id]);
-      const dest = retreatNode(pieces, loserNode, winnerNode, r.casualties);
-      if (!dest) {
+      // retreat the full distance, never through a piece, ending as far from the
+      // winner as possible — the winner picks only when destinations tie
+      const options = retreatOptions(pieces, state.trains, loserNode, winnerNode, r.casualties);
+      if (options.length === 0) {
         for (const p of survivors) delete pieces[p.id];
-        log.push(`${properName(loserNation)} lost ${r.casualties} and could not retreat — destroyed.`);
-      } else {
+        log.push(`${properName(loserNation)} lost ${r.casualties} and could not retreat the full ${r.casualties} cities — destroyed.`);
+      } else if (options.length === 1) {
+        const dest = options[0]!;
         for (const p of survivors) pieces[p.id] = { ...pieces[p.id]!, node: dest };
         log.push(`${properName(loserNation)} loses ${r.casualties} and retreats ${r.casualties} to ${cityName(dest)}.`);
+      } else {
+        pendingRetreat = {
+          nation: loserNation,
+          chooser: winnerNation,
+          pieceIds: survivors.map((p) => p.id),
+          from: loserNode,
+          options,
+        };
+        log.push(`${properName(loserNation)} loses ${r.casualties} and must retreat ${r.casualties} — ${properName(winnerNation)} chooses the path.`);
       }
     }
   }
@@ -169,7 +162,7 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
     if (!pieces[id]) offMap[id] = { id: p.id, nation: p.nation, rank: p.rank };
   }
 
-  return { ...state, version: state.version + 1, pieces, hands, playedSets, offMap, combat: null, log };
+  return { ...state, version: state.version + 1, pieces, hands, playedSets, offMap, combat: null, pendingRetreat, log };
 }
 
 // ---- card draw + deck cycling --------------------------------------------
@@ -432,6 +425,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       playedSets,
       setsUsed: 1,
       pendingDiscard: null,
+      pendingRetreat: null,
       drawAllot: { ...BASE_DRAW },
       stageMoves: {},
       combat: null,
@@ -457,9 +451,33 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
     if (state.pendingDiscard && action.type !== 'discardCard' && action.type !== 'ping') {
       throw new IllegalActionError(`${properName(state.pendingDiscard.nation)} must discard a card first.`);
     }
+    // "A defeated general has to retreat before the next combat is resolved."
+    if (state.pendingRetreat && action.type !== 'chooseRetreat' && action.type !== 'ping') {
+      throw new IllegalActionError(`${properName(state.pendingRetreat.chooser)} must first choose where ${properName(state.pendingRetreat.nation)} retreats.`);
+    }
     switch (action.type) {
       case 'ping':
         return { ...state, version: state.version + 1, log: [...state.log, `${action.by}: ${action.note}`] };
+
+      case 'chooseRetreat': {
+        const pending = state.pendingRetreat;
+        if (!pending) throw new IllegalActionError('No retreat is pending.');
+        if (!pending.options.includes(action.node)) {
+          throw new IllegalActionError('That is not a legal end to this retreat.');
+        }
+        const pieces: PieceMap = { ...state.pieces };
+        for (const id of pending.pieceIds) {
+          const p = pieces[id];
+          if (p) pieces[id] = { ...p, node: action.node };
+        }
+        return withWinner({
+          ...state,
+          version: state.version + 1,
+          pieces,
+          pendingRetreat: null,
+          log: [...state.log, `${properName(pending.nation)} retreats to ${cityName(action.node)}.`],
+        });
+      }
 
       case 'discardCard': {
         const pending = state.pendingDiscard;
@@ -890,6 +908,7 @@ export function requiredNation(state: FriedrichState, action: FriedrichAction): 
   if (action.type === 'ping') return null;
   if (action.type === 'allotTroops') return action.nation; // you may only raise your own armies
   if (action.type === 'discardCard') return state.pendingDiscard?.nation ?? null;
+  if (action.type === 'chooseRetreat') return state.pendingRetreat?.chooser ?? null; // the winner picks
   if (action.type === 'combatPlay' || action.type === 'combatPass') {
     if (!state.combat) return null;
     return state.combat.duel.toMove === 'attacker' ? state.combat.attackerNation : state.combat.defenderNation;
