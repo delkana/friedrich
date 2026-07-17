@@ -73,9 +73,10 @@ This is the spec the engine is built against. Confidence levels noted at the end
 
 ## Draw allotments (per nation, start of its action stage)
 Prussia 7 (4+3), Hanover 2 (1+1), Russia 4, Sweden 1, Austria 5 (4+1),
-Imperial 1, France draws 4 then discards 1 face-down. **No max hand size**; cards
-persist across turns; TCs are also **spent like money** to build/move supply
-trains. Some Cards of Fate reduce these.
+Imperial 1, France 4 — but France must then "select one to discard immediately"
+(**its own choice** of the four, face-down; the stage waits for it). **No max hand
+size**; cards persist across turns; TCs are also **spent like money** for
+recruitment. Some Cards of Fate reduce these.
 
 ## Generals & armies
 Confirmed against the official army sheet (`FriedrichArmeeplan.pdf`) — high
@@ -272,9 +273,6 @@ VASSAL setup stacks. Start sectors in parens (army-sheet grid refs).
 Deliberate simplifications still in the code. None is load-bearing for a playable
 game, but each is a real difference a rules lawyer would catch.
 
-- **France's discard is not a choice.** The sheet says: "Of the four Tactical
-  Cards drawn each turn, select one to discard immediately." We discard the last
-  card drawn instead of letting France pick. Needs a pending-discard sub-phase.
 - **Retreat path is not chosen by the winner.** The loser is placed on the
   reachable empty city farthest from the winner; the rules give the winner the
   choice of path.

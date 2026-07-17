@@ -683,6 +683,35 @@ function setupBox(): string {
   </div>`;
 }
 
+/** France's forced choice: which of the cards it just drew to throw away. */
+function discardBox(): string {
+  const pending = state.pendingDiscard!;
+  const nation = pending.nation;
+  const choices = (state.hands[nation] ?? []).filter((c) => pending.cardIds.includes(c.id));
+  if (!choices.length) {
+    return `<div id="setup-box">
+      <h3>${NATION_LABEL[nation]}'s Discard</h3>
+      <p class="sub">Waiting for ${NATION_LABEL[nation]} to discard one of the cards it drew…</p>
+    </div>`;
+  }
+  const cards = choices
+    .map((c) => {
+      const face = c.kind === 'reserve'
+        ? '<span class="val">RES</span>'
+        : `<span class="sym">${SUIT_SYMBOL[c.suit]}</span><span class="val">${c.value}</span>`;
+      const red = c.kind === 'suit' && isRed(c.suit) ? 'red' : '';
+      const res = c.kind === 'reserve' ? 'reserve' : '';
+      return `<div class="tc sm ${red} ${res} playable" data-discard="${c.id}">${face}</div>`;
+    })
+    .join('');
+  return `<div id="setup-box">
+    <h3>Discard One Card</h3>
+    <p class="sub">France draws four Tactical Cards each stage and must <b>immediately discard one
+      of its choice</b>, face-down. Pick the card you can spare — the other three are yours to keep.</p>
+    <div class="hand-cards" style="justify-content:center;margin:14px 0">${cards}</div>
+  </div>`;
+}
+
 const HELP_HTML = `<div id="help-box">
   <h3>How Friedrich works</h3>
   <div class="help-grid">
@@ -692,7 +721,8 @@ const HELP_HTML = `<div id="help-box">
       draws a card each turn, and once Russia, Sweden and France have all quit the war, Frederick has won.</p></section>
     <section><h5>The cards</h5><p>Every nation draws from <b>one shared deck</b> of 50 — so a card you take is
       one your enemy cannot. When it runs out the next of the box's four decks is opened; after all four,
-      the two biggest piles of played cards are shuffled back. Cards are the game's real currency.</p></section>
+      the two biggest piles of played cards are shuffled back. Cards are the game's real currency.
+      France draws four each stage but must throw one away.</p></section>
     <section><h5>Your turn</h5><p>Nations act in a fixed order each turn. On your stage you draw cards,
       then move each general <b>once</b> (3 cities, 4 if entirely along a thick main road — you cannot move
       through another piece), then attack. Right-click or click empty ground to deselect; use <b>Undo Move</b>
@@ -734,11 +764,13 @@ function renderChrome(): void {
   log.scrollTop = log.scrollHeight;
 
   const inSetup = state.phase === 'setup' && !state.winner;
-  const myTurn = canControl(nation) && !inSetup;
+  const myTurn = canControl(nation) && !inSetup && !state.pendingDiscard;
   const selMoved = selected != null && state.stageMoves[selected] !== undefined;
   const status = document.getElementById('status-line')!;
   status.textContent = inSetup
     ? 'The armies are being raised…'
+    : state.pendingDiscard
+    ? `${NATION_LABEL[state.pendingDiscard.nation]} must discard a card…`
     : state.combat
     ? 'Battle underway…'
     : !myTurn
@@ -782,6 +814,7 @@ function renderChrome(): void {
 
   const setupEl = document.getElementById('setup-overlay')!;
   if (inSetup) { setupEl.classList.add('show'); setupEl.innerHTML = setupBox(); }
+  else if (state.pendingDiscard) { setupEl.classList.add('show'); setupEl.innerHTML = discardBox(); }
   else { setupEl.classList.remove('show'); setupEl.innerHTML = ''; }
 
   const help = document.getElementById('help-overlay')!;
@@ -927,6 +960,8 @@ function onHudClick(e: Event): void {
   if (rt) return onRecruitClick(rt.dataset.rec!);
   const st = (e.target as Element).closest('[data-setup]') as HTMLElement | null;
   if (st) return onSetupClick(st.dataset.setup!);
+  const dt = (e.target as Element).closest('[data-discard]') as HTMLElement | null;
+  if (dt) return dispatch({ type: 'discardCard', cardId: dt.dataset.discard! });
   const ht = (e.target as Element).closest('[data-help],#btn-help') as HTMLElement | null;
   if (ht) { helpOpen = ht.id === 'btn-help'; renderChrome(); return; }
 

@@ -266,21 +266,23 @@ function beginStage(state: FriedrichState, nation: Nation): FriedrichState {
   const allot = state.drawAllot[nation] ?? 0;
   if (allot <= 0) return state;
   const res = drawCards(state, allot);
-  let hand: TacticalCard[] = [...state.hands[nation], ...res.drawn];
-  let playedSets: TacticalCard[][] = res.playedSets;
+  const hand: TacticalCard[] = [...state.hands[nation], ...res.drawn];
   const log = [...res.log, `${properName(nation)} draws ${res.drawn.length} card(s).`];
-  if (nation === 'france' && hand.length > 0) {
-    playedSets = setAside(playedSets, [hand[hand.length - 1]!]); // France discards one face-down
-    hand = hand.slice(0, -1);
-    log.push('France discards a card face-down.');
-  }
+  // "Of the four Tactical Cards drawn each turn, select one to discard
+  // immediately" — France's choice, so the stage waits for it.
+  const pendingDiscard =
+    nation === 'france' && res.drawn.length > 0
+      ? { nation, cardIds: res.drawn.map((c) => c.id) }
+      : null;
+  if (pendingDiscard) log.push('France must discard one of the cards it drew.');
   return {
     ...state,
     rng: res.rng,
     drawDeck: res.drawDeck,
-    playedSets,
+    playedSets: res.playedSets,
     setsUsed: res.setsUsed,
     hands: { ...state.hands, [nation]: hand },
+    pendingDiscard,
     log: [...state.log, ...log],
   };
 }
@@ -429,6 +431,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       drawDeck,
       playedSets,
       setsUsed: 1,
+      pendingDiscard: null,
       drawAllot: { ...BASE_DRAW },
       stageMoves: {},
       combat: null,
@@ -450,9 +453,34 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
     if (state.phase === 'setup' && action.type !== 'allotTroops' && action.type !== 'ping') {
       throw new IllegalActionError('The armies are still being raised — allot your troops first.');
     }
+    // the discard is made "immediately": nothing else happens until France picks
+    if (state.pendingDiscard && action.type !== 'discardCard' && action.type !== 'ping') {
+      throw new IllegalActionError(`${properName(state.pendingDiscard.nation)} must discard a card first.`);
+    }
     switch (action.type) {
       case 'ping':
         return { ...state, version: state.version + 1, log: [...state.log, `${action.by}: ${action.note}`] };
+
+      case 'discardCard': {
+        const pending = state.pendingDiscard;
+        if (!pending) throw new IllegalActionError('Nothing to discard.');
+        if (!pending.cardIds.includes(action.cardId)) {
+          throw new IllegalActionError('You may only discard one of the cards you just drew.');
+        }
+        const card = state.hands[pending.nation].find((c) => c.id === action.cardId);
+        if (!card) throw new IllegalActionError('That card is not in your hand.');
+        return {
+          ...state,
+          version: state.version + 1,
+          hands: {
+            ...state.hands,
+            [pending.nation]: state.hands[pending.nation].filter((c) => c.id !== action.cardId),
+          },
+          playedSets: setAside(state.playedSets, [card]),
+          pendingDiscard: null,
+          log: [...state.log, `${properName(pending.nation)} discards a card face-down.`],
+        };
+      }
 
       case 'allotTroops': {
         if (state.phase !== 'setup') throw new IllegalActionError('Troops are allotted only at set-up.');
@@ -827,7 +855,14 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       };
     }
 
-    return { ...state, hands, drawDeck: [], deckCount: state.drawDeck.length, pieces, combat };
+    // a card id spells out its suit and value, so the pending-discard choices are
+    // only for the nation making the choice — others just see that it is pending
+    const pendingDiscard =
+      state.pendingDiscard && !controlled.has(state.pendingDiscard.nation)
+        ? { ...state.pendingDiscard, cardIds: [] }
+        : state.pendingDiscard;
+
+    return { ...state, hands, drawDeck: [], deckCount: state.drawDeck.length, pieces, combat, pendingDiscard };
   },
 };
 
@@ -854,6 +889,7 @@ export function nationsControlledBy(state: FriedrichState, viewer: PlayerId): Se
 export function requiredNation(state: FriedrichState, action: FriedrichAction): Nation | null {
   if (action.type === 'ping') return null;
   if (action.type === 'allotTroops') return action.nation; // you may only raise your own armies
+  if (action.type === 'discardCard') return state.pendingDiscard?.nation ?? null;
   if (action.type === 'combatPlay' || action.type === 'combatPass') {
     if (!state.combat) return null;
     return state.combat.duel.toMove === 'attacker' ? state.combat.attackerNation : state.combat.defenderNation;

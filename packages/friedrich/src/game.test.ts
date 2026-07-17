@@ -18,6 +18,17 @@ const emptyNeighbour = (s: FriedrichState, node: string): string =>
 const PLAYERS = ['p0', 'p1', 'p2', 'p3'];
 const act = (s: FriedrichState, a: FriedrichAction): FriedrichState => Friedrich.reducer(s, a);
 
+/**
+ * End the current stage and answer any discard the new stage owes (France's),
+ * so tests that fast-forward through many stages don't stall on the choice.
+ */
+const endStage = (s: FriedrichState): FriedrichState => {
+  const next = act(s, { type: 'endNationTurn', by: 'p0' });
+  return next.pendingDiscard
+    ? act(next, { type: 'discardCard', by: 'p0', cardId: next.pendingDiscard.cardIds[0]! })
+    : next;
+};
+
 /** A game paused at set-up, before anyone has allotted troops. */
 const rawSetup = (): FriedrichState => Friedrich.setup('seed-1', PLAYERS);
 
@@ -168,6 +179,52 @@ test('once all four decks are used up, the two fullest piles are shuffled back',
   );
 });
 
+/** Advance to France's stage (it acts last in the order). */
+const toFrance = (s: FriedrichState): FriedrichState =>
+  NATION_ORDER.slice(0, NATION_ORDER.indexOf('france')).reduce(
+    (acc) => act(acc, { type: 'endNationTurn', by: 'p0' }),
+    s,
+  );
+
+test('France draws four and chooses one of them to discard', () => {
+  const s = toFrance(fresh());
+  assert.equal(s.hands.france.length, 4, 'all four drawn are in hand until France chooses');
+  assert.equal(s.pendingDiscard?.nation, 'france');
+  assert.deepEqual([...s.pendingDiscard!.cardIds].sort(), s.hands.france.map((c) => c.id).sort());
+
+  // the whole stage waits on the choice
+  assert.throws(() => act(s, { type: 'endNationTurn', by: 'p0' }), IllegalActionError);
+  assert.throws(() => act(s, { type: 'move', by: 'p0', pieceId: 'soubise', to: 'kassel' }), IllegalActionError);
+
+  // France may pick ANY of the four — not merely the last dealt
+  const chosen = s.hands.france[0]!;
+  const after = act(s, { type: 'discardCard', by: 'p0', cardId: chosen.id });
+  assert.equal(after.pendingDiscard, null);
+  assert.equal(after.hands.france.length, 3, 'France keeps three');
+  assert.ok(!after.hands.france.some((c) => c.id === chosen.id), 'the chosen card is gone');
+  assert.ok(after.playedSets.flat().some((c) => c.id === chosen.id), 'and is set aside on its own pile');
+  act(after, { type: 'endNationTurn', by: 'p0' }); // the stage runs on
+});
+
+test('France may only discard a card it just drew', () => {
+  let s = toFrance(fresh());
+  // give France a card it held from before — that one is not a legal choice
+  const older = { id: 'older-card', kind: 'suit' as const, suit: 'clubs' as const, value: 9, origin: 'set1' };
+  s = { ...s, hands: { ...s.hands, france: [...s.hands.france, older] } };
+  assert.throws(() => act(s, { type: 'discardCard', by: 'p0', cardId: 'older-card' }), IllegalActionError);
+  assert.throws(() => act(s, { type: 'discardCard', by: 'p0', cardId: 'no-such-card' }), IllegalActionError);
+});
+
+test('the cards France may discard are hidden from everyone else', () => {
+  const s = toFrance(fresh());
+  const france = s.players.find((p) => (s.seats[p] ?? []).includes('pompadour'))!;
+  const other = s.players.find((p) => !(s.seats[p] ?? []).includes('pompadour'))!;
+  assert.equal(Friedrich.redact(s, france).pendingDiscard?.cardIds.length, 4, 'France sees its own choices');
+  const theirs = Friedrich.redact(s, other).pendingDiscard;
+  assert.equal(theirs?.nation, 'france', 'others know France owes a discard');
+  assert.deepEqual(theirs?.cardIds, [], "but a card id spells out the card, so they don't see which");
+});
+
 test('the 50 cards in play are conserved across the deck, hands and played piles', () => {
   const s = fresh();
   const inHands = NATION_ORDER.reduce((n, nat) => n + s.hands[nat].length, 0);
@@ -285,7 +342,7 @@ test('eased victory: Sweden needs only its 1st-order objectives once Russia is o
 
 test('France only withdraws after both the India and America cards are drawn', () => {
   let s = fresh();
-  for (let i = 0; i < 400 && !s.winner; i++) s = act(s, { type: 'endNationTurn', by: 'p0' });
+  for (let i = 0; i < 400 && !s.winner; i++) s = endStage(s);
   if (s.eliminated.includes('france')) {
     assert.ok(
       s.fateDrawn.includes('india') && s.fateDrawn.includes('america'),
@@ -310,7 +367,7 @@ test('an attacker seizes its objective by occupying it', () => {
 
 test('the Clock of Fate starts drawing at the end of turn 6', () => {
   let s = fresh();
-  const end = () => act(s, { type: 'endNationTurn', by: 'p0' });
+  const end = () => endStage(s);
   for (let i = 0; i < 35; i++) s = end(); // through the end of turn 5
   assert.equal(s.turn, 6);
   assert.equal(s.fateDrawn.length, 0, 'no fate cards before turn 6');
@@ -342,10 +399,10 @@ test('a general cut off from supply flips face-down, then is destroyed next supp
   let s: FriedrichState = { ...fresh(), pieces: { ...fresh().pieces, fermor: { ...fresh().pieces['fermor']!, node: 'kassel' } } };
   assert.equal(inSupply(s, s.pieces['fermor']!), false);
 
-  for (let i = 0; i < 3; i++) s = act(s, { type: 'endNationTurn', by: 'p0' }); // through Russia's first supply phase
+  for (let i = 0; i < 3; i++) s = endStage(s); // through Russia's first supply phase
   assert.equal(s.pieces['fermor']?.faceUp, false, 'cut off → face-down (no loss yet)');
 
-  for (let i = 0; i < 7; i++) s = act(s, { type: 'endNationTurn', by: 'p0' }); // to Russia's next supply phase
+  for (let i = 0; i < 7; i++) s = endStage(s); // to Russia's next supply phase
   assert.equal(s.pieces['fermor'], undefined, 'still cut off → destroyed');
 });
 

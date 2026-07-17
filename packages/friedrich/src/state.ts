@@ -57,6 +57,13 @@ export interface FriedrichState extends BaseState {
   readonly playedSets: readonly (readonly TacticalCard[])[];
   /** How many of the four decks have served as the draw deck so far. */
   readonly setsUsed: number;
+  /**
+   * France's stage opens by drawing four cards and discarding one **of its
+   * choice** ("select one to discard immediately"), so the stage pauses here
+   * until it picks. `cardIds` are the cards just drawn — the only legal choices,
+   * and hidden from everyone else.
+   */
+  readonly pendingDiscard: { readonly nation: Nation; readonly cardIds: readonly string[] } | null;
   /** Cards each nation draws at the start of its stage (reduced by some Cards of Fate). */
   readonly drawAllot: Readonly<Record<Nation, number>>;
   /**
@@ -101,6 +108,8 @@ export type FriedrichAction =
       trains: number;
       cardIds: string[];
     } & BaseAction)
+  /** France: choose which of the cards it just drew to discard face-down. */
+  | ({ type: 'discardCard'; cardId: string } & BaseAction)
   | ({ type: 'undoMove'; pieceId: string } & BaseAction)
   | ({ type: 'attack'; attackerId: string; defenderId: string } & BaseAction)
   | ({ type: 'combatPlay'; cardId: string; reserve?: ReservePlay } & BaseAction)
