@@ -29,6 +29,11 @@ import {
   isEased,
   areEnemies,
   MAX_STACK,
+  TRAIN_MOVE,
+  TRAIN_MOVE_MAIN,
+  SUPPLY_RANGE,
+  type Piece,
+  type Train,
   suggestAllotment,
   CARD_SETS,
   ALL_GENERALS,
@@ -70,6 +75,7 @@ let state: FriedrichState = Friedrich.setup(randomSeed(), ['A', 'B', 'C', 'D']);
 let selected: string | null = null;
 let selectedTrain: string | null = null;
 let hovered: string | null = null; // inspect a stack without selecting it
+let hoveredTrain: string | null = null; // ditto for a supply train
 let pendingReserve: string | null = null;
 let helpOpen = false;
 let recruitOpen = false;
@@ -126,6 +132,32 @@ function dispatch(action: WithoutBy<FriedrichAction>): void {
 
 // ---- map geometry --------------------------------------------------------
 
+/** Where a general could march: 3 cities (4 all-main), no passing pieces. */
+function generalReach(p: Piece): Set<string> {
+  const out = new Set<string>();
+  for (const node of reachableNodes(friedrichMap, p.node, occupied()).keys()) {
+    const here = piecesAt(node);
+    if (here.length === 0) out.add(node);
+    else if (here.every((x) => x.nation === p.nation) && here.length < MAX_STACK) out.add(node); // stack up
+  }
+  return out;
+}
+
+/** Where a supply train could roll: 2 cities (3 all-main), never onto an enemy. */
+function trainReach(t: Train): Set<string> {
+  const out = new Set<string>();
+  const occ = new Set<string>([...occupied(), ...Object.values(state.trains).map((x) => x.node)]);
+  const side = sideOfNation(t.nation);
+  const reach = reachableNodes(friedrichMap, t.node, occ, { maxSteps: TRAIN_MOVE, maxStepsMainRoad: TRAIN_MOVE_MAIN });
+  for (const node of reach.keys()) {
+    const enemy =
+      piecesAt(node).some((p) => sideOfNation(p.nation) !== side) ||
+      Object.values(state.trains).some((x) => x.node === node && sideOfNation(x.nation) !== side);
+    if (!enemy) out.add(node);
+  }
+  return out;
+}
+
 function moveTargets(): Set<string> {
   const targets = new Set<string>();
   if (state.combat) return targets;
@@ -137,32 +169,46 @@ function moveTargets(): Set<string> {
     return targets;
   }
 
-  // a selected supply train: range 2 cities (3 all-main), no enemy destinations
   if (selectedTrain) {
     const t = state.trains[selectedTrain];
-    if (!t) return targets;
-    const occ = new Set<string>([...occupied(), ...Object.values(state.trains).map((x) => x.node)]);
-    const reach = reachableNodes(friedrichMap, t.node, occ, { maxSteps: 2, maxStepsMainRoad: 3 });
-    for (const node of reach.keys()) {
-      const side = sideOfNation(t.nation);
-      const enemy = piecesAt(node).some((p) => sideOfNation(p.nation) !== side) ||
-        Object.values(state.trains).some((x) => x.node === node && sideOfNation(x.nation) !== side);
-      if (!enemy) targets.add(node);
-    }
-    return targets;
+    return t ? trainReach(t) : targets;
   }
 
   if (!selected) return targets;
   const sel = state.pieces[selected];
   if (!sel) return targets;
   if (state.stageMoves[selected] !== undefined) return targets; // already moved this stage
-  const reach = reachableNodes(friedrichMap, sel.node, occupied());
-  for (const node of reach.keys()) {
-    const here = piecesAt(node);
-    if (here.length === 0) targets.add(node);
-    else if (here.every((p) => p.nation === sel.nation) && here.length < MAX_STACK) targets.add(node);
+  return generalReach(sel);
+}
+
+/**
+ * Where the piece under the cursor could go. Shown for ANY piece — the enemy's
+ * as much as your own — purely to read the board, so it is never gated on whose
+ * turn it is or on whether the piece has already moved. Drawn in a different
+ * colour from your own move options, so a look is never mistaken for a plan.
+ */
+function peekTargets(): Set<string> {
+  const none = new Set<string>();
+  if (state.combat || state.pendingRetreat || state.phase === 'setup') return none;
+  if (hoveredTrain) {
+    if (hoveredTrain === selectedTrain) return none; // already shown as your move
+    const t = state.trains[hoveredTrain];
+    return t ? trainReach(t) : none;
   }
-  return targets;
+  if (!hovered || hovered === selected) return none;
+  const p = state.pieces[hovered];
+  return p ? generalReach(p) : none;
+}
+
+/**
+ * Repaint just the peek rings. Hover fires constantly, and rebuilding the whole
+ * board (671 cities, 1125 roads and the washes) on every mouse move would crawl.
+ */
+function applyPeek(): void {
+  const peek = peekTargets();
+  for (const el of document.querySelectorAll('#board-root [data-node]')) {
+    el.classList.toggle('peek', peek.has(el.getAttribute('data-node')!));
+  }
 }
 
 const sideOfNation = (n: Nation): 'defender' | 'attacker' =>
@@ -170,6 +216,7 @@ const sideOfNation = (n: Nation): 'defender' | 'attacker' =>
 
 function boardInner(): string {
   const targets = moveTargets();
+  const peek = peekTargets();
   const sel = selected ? state.pieces[selected] : null;
 
   const defs =
@@ -213,7 +260,7 @@ function boardInner(): string {
 
   const nodes = [...friedrichMap.nodes.values()]
     .map((n) => {
-      const reach = targets.has(n.id) ? 'reach' : '';
+      const reach = targets.has(n.id) ? 'reach' : peek.has(n.id) ? 'peek' : '';
       // objective banner: solid = held by its attacker, hollow = still the defender's
       const objCol = n.objectiveFor ? (NATION_COLOR[n.objectiveFor as Nation] ?? '#888') : '';
       const held = n.objectiveFor ? state.conquered[n.id] === n.objectiveFor : false;
@@ -594,6 +641,20 @@ function handPanel(): string {
 
 /** The selected general's stack: who's there, ranks, troops, supply. */
 function armyPanel(): string {
+  // hovering a supply train reads it the same way as an army
+  if (hoveredTrain && !hovered) {
+    const t = state.trains[hoveredTrain];
+    if (!t) return '';
+    const at = friedrichMap.nodes.get(t.node)!;
+    const n = peekTargets().size;
+    return `<h4>${NATION_LABEL[t.nation]} — supply train (inspecting)</h4>
+      <div class="where">${at.name} · ${SUIT_SYMBOL[at.suit]} ${at.suit}</div>
+      <div class="rows"><div class="tot">${TRAIN_MOVE} cities' move (${TRAIN_MOVE_MAIN} on main roads)</div>
+      ${peekLegend(n)}
+      <div style="color:#9c8f74;font-size:11.5px;margin-top:6px">Supplies its generals within ${SUPPLY_RANGE} cities.
+        It cannot fight: an enemy general entering its city destroys it.</div></div>`;
+  }
+
   const focus = hovered ?? selected; // hover to inspect any stack, incl. the enemy's
   if (!focus) return '';
   const p = state.pieces[focus];
@@ -613,7 +674,13 @@ function armyPanel(): string {
   const obj = node.objectiveFor ? ` · objective of ${NATION_LABEL[node.objectiveFor as Nation]}` : '';
   return `<h4>${NATION_LABEL[p.nation]}${hovered && hovered !== selected ? ' (inspecting)' : ''}</h4>
     <div class="where">${node.name} · ${SUIT_SYMBOL[node.suit]} ${node.suit}${obj}</div>
-    <div class="rows">${rows}<div class="tot">Strength ${total}${known.length < stack.length ? '+?' : ''} troops${stack.length > 1 ? ` · ${stack.length} generals` : ''}</div>${cut}</div>`;
+    <div class="rows">${rows}<div class="tot">Strength ${total}${known.length < stack.length ? '+?' : ''} troops${stack.length > 1 ? ` · ${stack.length} generals` : ''}</div>${cut}${peekLegend(peekTargets().size)}</div>`;
+}
+
+/** Key for the dashed amber rings, so a new colour on the map is never a mystery. */
+function peekLegend(n: number): string {
+  if (!n) return '';
+  return `<div style="color:#d3a24a;font-size:11.5px;margin-top:6px">◌ ${n} cities in reach — dashed amber on the map</div>`;
 }
 
 /** Who is close to winning: each attacker's objectives, and Prussia's survival. */
@@ -829,6 +896,11 @@ const HELP_HTML = `<div id="help-box">
       then move each general <b>once</b> (3 cities, 4 if entirely along a thick main road — you cannot move
       through another piece), then attack. Right-click or click empty ground to deselect; use <b>Undo Move</b>
       before you commit.</p></section>
+    <section><h5>Reading the board</h5><p><b>Hover any piece</b> — yours or the enemy's, general or supply
+      train — to ring every city it could reach in <b>dashed amber</b>, and to read its stack in the panel.
+      It is only a look: nothing is selected and no turn is spent, so use it to measure what an enemy army
+      threatens before you commit. Your own move options, once you select a general, are the
+      <b>solid green</b> rings.</p></section>
     <section><h5>Battle</h5><p>Strength = a general's <b>secret troops</b> + the <b>Tactical Cards</b> it plays.
       You may only play cards matching the <b>suit of the sector your general stands in</b> (Reserves are wild) —
       that's why the same card is decisive in one province and useless in the next. The side that is behind plays;
@@ -1228,17 +1300,26 @@ function mount(): void {
   root.addEventListener('click', onBoardClick);
   // hover any counter (including the enemy's) to inspect that stack
   root.addEventListener('mouseover', (e) => {
-    const el = (e.target as Element).closest('[data-piece]');
-    const id = el?.getAttribute('data-piece') ?? null;
-    if (id === hovered) return;
+    const target = e.target as Element;
+    const id = target.closest('[data-piece]')?.getAttribute('data-piece') ?? null;
+    const train = target.closest('[data-train]')?.getAttribute('data-train') ?? null;
+    if (id === hovered && train === hoveredTrain) return;
     hovered = id;
+    hoveredTrain = train;
     // during set-up the highlight runs both ways: hovering a counter on the map
     // picks out its row in the panel
     if (state.phase === 'setup') { allotHover = id; renderMap(); }
+    else applyPeek(); // show what the piece under the cursor could do
     renderChrome();
   });
   root.addEventListener('mouseout', (e) => {
-    if ((e.target as Element).closest('[data-piece]') && hovered) { hovered = null; renderChrome(); }
+    const target = e.target as Element;
+    if (!target.closest('[data-piece],[data-train]')) return;
+    if (!hovered && !hoveredTrain) return;
+    hovered = null;
+    hoveredTrain = null;
+    if (state.phase !== 'setup') applyPeek();
+    renderChrome();
   });
   // hovering a general's row in the set-up panel picks him out on the map
   const setupEl = document.getElementById('setup-overlay')!;

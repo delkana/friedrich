@@ -90,6 +90,9 @@
       .node { fill: #f2e7c8; stroke-width: 7; }
       .node.reach { stroke: #2f7d43 !important; stroke-width: 16; }
       .node.reach + .obj, .node.reach { cursor: pointer; }
+      /* where the piece under the cursor could go — a look, not a plan, so it is
+         dashed and amber rather than the solid green of your own move options */
+      .node.peek { stroke: #b07d1e !important; stroke-width: 13; stroke-dasharray: 12 9; }
       .nlabel { fill: #3a2c17; font-size: 26px; font-family: Georgia, serif; font-style: italic;
         text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: #ece0c2; stroke-width: 5px; stroke-linejoin: round; }
       .nlabel.setuplbl { font-weight: 700; font-style: normal; }
