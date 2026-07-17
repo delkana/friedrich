@@ -87,6 +87,13 @@
       .edge { stroke: #4a3826; stroke-width: 4; stroke-linecap: round; }
       .edge.main { stroke: #241a0e; stroke-width: 15; }
       .edge.main-inner { stroke: #cdb98c; stroke-width: 5; }
+      /* home countries: a soft tint to read the shape at a glance, and a firm
+         border, because supply turns on which side of it a general stands */
+      .home-fill { fill-rule: evenodd; opacity: .5; }
+      .home-edge { fill: none; stroke-width: 9; opacity: .75; stroke-linejoin: round; }
+      /* the shore itself — ink, like an engraved chart */
+      .coast { fill: none; stroke: #6a5a3c; stroke-width: 8; stroke-linecap: round;
+        stroke-linejoin: round; opacity: .65; }
       .node { fill: #f2e7c8; stroke-width: 7; }
       .node.reach { stroke: #2f7d43 !important; stroke-width: 16; }
       .node.reach + .obj, .node.reach { cursor: pointer; }

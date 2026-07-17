@@ -324,6 +324,32 @@ VASSAL setup stacks. Start sectors in parens (army-sheet grid refs).
   Note "another **player**", not another nation: pieces you control yourself can
   simply be marched away, so they block re-entry without earning you a substitute.
 
+## Home countries (rule 1) — and the map's geography
+- "All **dark-blue** areas (including all exclaves) are the home country of
+  **Prussia**; all **light blue** areas are the home country of **Hanover**." The
+  board really does print two blues: Prussia `#9CD3F1`, Hanover `#D3EAF2`.
+- "The home country of the **Imperial Army** is **all yellow territories**,
+  including Sachsen." Both the Reich's yellow `#F6E87E` and Saxony's gold
+  `#F4DB65` count — as does Hessen's.
+- **Austria** white, **Sweden** green (Pomerania). **Russia and France have no
+  home country**; Poland's salmon is nobody's.
+- Counts in `map-data.ts`: prussia 197, imperial 200, austria 71, hanover 49,
+  sweden 6, none 148. **Two bugs lived here** (fixed 2026-07-17): the tint→home
+  table keyed Hanover `hanover` while the transcription spells it `hannover`, so
+  Hanover had **no home country at all**; and only Saxony mapped to imperial, so
+  the Imperial Army was homeless on its own general's city. Tests now pin both.
+- `HOME_COUNTRY` in the generated `geography.ts` is derived from `node.home` —
+  the same field supply reads — as the ground nearer one of that nation's home
+  cities than any other city, clipped to land. It is deliberately NOT traced off
+  the printed border: if the two disagreed, the map would be lying about the rule.
+- `COASTLINE` IS traced off the board, because nothing in the city data implies
+  where the water is. The sea is not blue — it is the same cream as the margin —
+  so it is found by colour plus connectivity (big cream regions reaching the edge
+  of the sheet), which is what stops the cream city discs from punching holes in
+  it. Only the largest land component is kept, or the FRIEDRICH title and the
+  1756 box get their own little coastlines. Regenerate:
+  `powershell ./scripts/dump-board.ps1` then `node scripts/extract-geography.mjs`.
+
 ## Implementation notes
 - **Retreat is decided, not enumerated.** Listing every exact-length simple path
   explodes (~6.5× per two extra cities), and retreats are as long as the troops

@@ -80,8 +80,38 @@ const water = new Uint8Array(W * H);
     if (touchesEdge || cells.length > 1500) for (const c of cells) water[c] = 1;
   }
 }
+const rawLand = new Uint8Array(W * H);
+for (let i = 0; i < W * H; i++) rawLand[i] = water[i] ? 0 : 1;
+
+/**
+ * Keep only real ground. Everything printed ON the sea — the FRIEDRICH title,
+ * the 1756 box, the hourglass — is ink on cream, so it comes through as "not
+ * water" and would otherwise be traced as a little island with its own
+ * coastline. Central Europe is one enormous connected blob; the decorations are
+ * not.
+ */
 const land = new Uint8Array(W * H);
-for (let i = 0; i < W * H; i++) land[i] = water[i] ? 0 : 1;
+{
+  const seen = new Uint8Array(W * H);
+  for (let sy = 0; sy < H; sy++) for (let sx = 0; sx < W; sx++) {
+    if (!rawLand[idx(sx, sy)] || seen[idx(sx, sy)]) continue;
+    const cells = [];
+    const stack = [[sx, sy]];
+    seen[idx(sx, sy)] = 1;
+    while (stack.length) {
+      const [x, y] = stack.pop();
+      cells.push(idx(x, y));
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if (!rawLand[idx(nx, ny)] || seen[idx(nx, ny)]) continue;
+        seen[idx(nx, ny)] = 1;
+        stack.push([nx, ny]);
+      }
+    }
+    if (cells.length > W * H * 0.01) for (const c of cells) land[c] = 1;
+  }
+}
 
 // ---- check it against the cities before trusting it ----------------------
 
@@ -194,10 +224,14 @@ const toBoard = (line) => line.map(([x, y]) => [Math.round((x + 0.5) * SCALE), M
 const M = 60; // board units
 const nearFrame = ([x, y]) => x < M || y < M || x > BW - M || y > BH - M;
 
-function polylines(mask, { tol = 1.6, minPoints = 4, dropFrame = false } = {}) {
+function polylines(mask, { tol = 1.6, minPoints = 4, dropFrame = false, minExtent = 0 } = {}) {
   const out = [];
   for (const line of chain(marchingSquares(mask))) {
     const board = toBoard(simplify(line, tol));
+    // a ring too small to read is noise, not a country
+    const xs = board.map((p) => p[0]), ys = board.map((p) => p[1]);
+    const extent = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    if (extent < minExtent) continue;
     if (!dropFrame) {
       if (board.length >= minPoints) out.push(board);
       continue;
@@ -216,7 +250,7 @@ function polylines(mask, { tol = 1.6, minPoints = 4, dropFrame = false } = {}) {
 }
 
 // the land mask's outline IS the coast, once the edges of the sheet are cut off
-const coast = polylines(land, { tol: 1.6, minPoints: 6, dropFrame: true })
+const coast = polylines(land, { tol: 1.6, minPoints: 6, dropFrame: true, minExtent: 400 })
   .filter((l) => l.length >= 6);
 console.log(`coastline: ${coast.length} lines, ${coast.reduce((n, l) => n + l.length, 0)} points`);
 
@@ -244,7 +278,7 @@ const territory = {};
 for (const [i, home] of HOMES.entries()) {
   const mask = new Uint8Array(W * H);
   for (let c = 0; c < W * H; c++) if (owner[c] === i) mask[c] = 1;
-  territory[home] = polylines(mask, { tol: 1.6, minPoints: 4 });
+  territory[home] = polylines(mask, { tol: 1.6, minPoints: 4, minExtent: 120 });
   const pts = territory[home].reduce((n, l) => n + l.length, 0);
   console.log(`  ${home.padEnd(9)} ${String(territory[home].length).padStart(3)} rings, ${pts} points`);
 }

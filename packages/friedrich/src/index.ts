@@ -1,6 +1,7 @@
 export * from './powers.js';
 export * from './pieces.js';
 export * from './map-data.js';
+export * from './geography.js';
 export * from './fate.js';
 export * from './victory.js';
 export * from './supply.js';

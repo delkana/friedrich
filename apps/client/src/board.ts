@@ -20,6 +20,9 @@ import {
   friedrichMap,
   SUIT_STAMPS,
   SECTOR_LINES,
+  COASTLINE,
+  HOME_COUNTRY,
+  type Polyline,
   NATION_ORDER,
   NATION_OF_ROLE,
   HIDDEN_TROOPS,
@@ -58,9 +61,19 @@ const NATION_COLOR: Record<Nation, string> = {
   prussia: '#2f4a7a', hanover: '#5b82b8', austria: '#9e9e94',
   russia: '#2f6e3e', france: '#5b3f7d', imperial: '#a8842c', sweden: '#2c7a7a',
 };
+/**
+ * Home-country tints, following the printed board: Prussia's deeper blue against
+ * Hanover's paler one, the Reich's yellow (Saxony included), Austria's near
+ * white, Sweden's green. Russia and France have no home country and so no tint.
+ */
 const WASH_COLOR: Record<string, string> = {
-  prussia: '#7f9fc9', hanover: '#c9d9a8', austria: '#e3e0d5',
-  imperial: '#e0c268', sweden: '#8fbf9a',
+  prussia: '#a8c8e6', hanover: '#cfe4ee', austria: '#e8e3d2',
+  imperial: '#eddc93', sweden: '#a9cfa6',
+};
+/** The border ink for each — the same hue, dark enough to read as a line. */
+const BORDER_COLOR: Record<string, string> = {
+  prussia: '#3d6a97', hanover: '#6f9bb2', austria: '#9a8f6b',
+  imperial: '#a8862c', sweden: '#4c8455',
 };
 const NATION_LABEL: Record<Nation, string> = {
   prussia: 'Prussia', hanover: 'Hanover', austria: 'Austria',
@@ -281,25 +294,33 @@ function boardInner(): string {
   const peek = peekTargets();
   const sel = selected ? state.pieces[selected] : null;
 
-  const defs =
-    `<defs>${Object.entries(WASH_COLOR)
-      .map(([n, c]) => `<radialGradient id="wash-${n}"><stop offset="35%" stop-color="${c}"/><stop offset="100%" stop-color="${c}" stop-opacity="0"/></radialGradient>`)
-      .join('')}</defs>`;
-
   // parchment ground
   const ground = `<rect x="-400" y="-400" width="${BOARD_W + 800}" height="${BOARD_H + 800}" fill="#e7d9b8"/>`;
 
-  // territory washes (bucketed so we draw ~100 blobs, not 600)
-  const buckets = new Map<string, { x: number; y: number; n: number; home: string }>();
-  for (const node of friedrichMap.nodes.values()) {
-    if (!node.home || !WASH_COLOR[node.home]) continue;
-    const key = `${node.home}:${Math.round(node.x / 380)}:${Math.round(node.y / 380)}`;
-    const b = buckets.get(key) ?? { x: 0, y: 0, n: 0, home: node.home };
-    b.x += node.x; b.y += node.y; b.n++; buckets.set(key, b);
-  }
-  const washes = `<g opacity="0.33">${[...buckets.values()]
-    .map((b) => `<circle cx="${Math.round(b.x / b.n)}" cy="${Math.round(b.y / b.n)}" r="${230 + b.n * 14}" fill="url(#wash-${b.home})"/>`)
-    .join('')}</g>`;
+  /** One SVG path per set of rings; even-odd so enclaves punch through. */
+  const rings = (lines: readonly Polyline[], close: boolean) =>
+    lines
+      .map((l) => 'M' + l.map(([x, y]) => `${x},${y}`).join('L') + (close ? 'Z' : ''))
+      .join(' ');
+
+  // Home countries, drawn from the same `home` field the supply rule reads — so
+  // the ground a player sees as Prussian is exactly the ground Prussia is in
+  // supply on. Russia and France are absent: they have no home country.
+  const washes =
+    '<g class="home-country">' +
+    Object.entries(HOME_COUNTRY)
+      .map(([nation, lines]) => {
+        const d = rings(lines, true);
+        return (
+          `<path class="home-fill" fill="${WASH_COLOR[nation] ?? '#ccc'}" d="${d}"/>` +
+          `<path class="home-edge" stroke="${BORDER_COLOR[nation] ?? '#888'}" d="${d}"/>`
+        );
+      })
+      .join('') +
+    '</g>';
+
+  // the shores of the North Sea and the Baltic, traced off the printed board
+  const coast = `<path class="coast" d="${rings(COASTLINE, false)}"/>`;
 
   // printed sector-grid lines (Voronoi boundaries of the suit stamps)
   const sectors =
@@ -395,7 +416,8 @@ function boardInner(): string {
     }))
     .join('');
 
-  return defs + ground + washes + sectors + stamps + edges + ghosts + nodes + trains + pieces;
+  // coast over the territory (it is the edge of the land), but under the roads
+  return ground + washes + coast + sectors + stamps + edges + ghosts + nodes + trains + pieces;
 }
 
 // ---- pan / zoom ----------------------------------------------------------
@@ -988,10 +1010,12 @@ const HELP_HTML = `<div id="help-box">
       It must end up <b>as far from the winner as it can</b>, and the <b>winner</b> picks which of those cities.
       A stack that cannot go the full distance is <b>wiped out</b>, so being cornered is deadlier than being
       outnumbered.</p></section>
-    <section><h5>Supply</h5><p>A general is in supply in its <b>home country</b>, or if it can trace ≤6 cities —
-      never through an enemy — to one of its <b>supply trains</b>. Cut off, it flips face-down (red dot);
-      if it is still cut off at its next supply phase it is <b>destroyed</b>. Russia and France have no home
-      country: their trains are their lifeline, and taking one is a real blow.</p></section>
+    <section><h5>Supply</h5><p>A general is in supply in its <b>home country</b> — the <b>tinted, bordered
+      ground</b> on the map: Prussia's blue against Hanover's paler blue, the Imperial Army's yellow (Saxony
+      counts), Austria's white, Sweden's green. Anywhere else it must trace ≤6 cities — never through an
+      enemy — to one of its <b>supply trains</b>. Cut off, it flips face-down (red dot); if it is still cut
+      off at its next supply phase it is <b>destroyed</b>. Russia and France have no home country at all —
+      untinted ground everywhere — so their trains are their lifeline, and taking one is a real blow.</p></section>
     <section><h5>Recruitment</h5><p>Cards are also <b>money</b>: 6 points per troop or supply train, spent at
       one of your <b>depot cities</b>. Every card you spend on logistics is one you cannot fight with.</p></section>
   </div>
