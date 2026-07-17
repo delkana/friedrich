@@ -205,6 +205,34 @@
       .banner.tie { background: #322c16; border: 1px solid #7d6f2f; color: #e6dcae; }
       .duel-controls { display: flex; align-items: center; gap: 12px; justify-content: center; margin-top: 8px; }
 
+      /* ---- recruit + help modals ---- */
+      .modal { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+        background: radial-gradient(80% 80% at 50% 45%, #0009, #000d); z-index: 20; overflow: auto; padding: 20px; }
+      .modal.show { display: flex; }
+      #recruit-box, #help-box { width: min(640px, 94vw); max-height: 90vh; overflow: auto; padding: 6px 20px 18px;
+        background: linear-gradient(#211a10, #17110a); border: 1px solid #5a4a24; border-radius: 6px; box-shadow: 0 20px 60px #000d; }
+      #help-box { width: min(760px, 94vw); }
+      #recruit-box h3, #help-box h3 { font-family: Georgia, serif; letter-spacing: 3px; text-transform: uppercase;
+        color: var(--gold); text-align: center; margin: 14px 0 6px; }
+      #recruit-box .sub, #help-box .sub { color: var(--muted); font-size: 12px; }
+      .rec-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0;
+        border-bottom: 1px dashed #ffffff10; font-size: 14px; }
+      .rec-row small { color: var(--muted); }
+      .rec-row select { font: inherit; padding: 5px 8px; background: #0d0a06; color: var(--text);
+        border: 1px solid #4a3c1f; border-radius: 4px; max-width: 60%; }
+      .rec-row .gb { padding: 3px 10px; }
+      .rec-n { min-width: 24px; text-align: center; font-family: Georgia, serif; font-size: 17px; }
+      .rec-cards .hand-cards { display: flex; gap: 5px; flex-wrap: wrap; }
+      .tc.sel { outline: 3px solid var(--gold); }
+      .rec-total { text-align: center; font-family: Georgia, serif; font-size: 16px; margin: 10px 0 4px; color: var(--muted); }
+      .rec-total.ok { color: #8fd19b; }
+      .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
+      .help-grid section { background: #0f0c08; border: 1px solid #ffffff12; border-radius: 5px; padding: 10px 12px; }
+      .help-grid h5 { margin: 0 0 5px; color: var(--gold-dim); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
+      .help-grid p { margin: 0; font-size: 12.5px; line-height: 1.5; color: #cdbfa0; }
+      @media (max-width: 700px) { .help-grid { grid-template-columns: 1fr; } }
+      #btn-help { width: 30px; height: 30px; padding: 0; display: flex; align-items: center; justify-content: center; }
+
       /* ---- victory screen ---- */
       #gameover { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
         background: radial-gradient(70% 70% at 50% 40%, #1a1206ee, #000000f4); z-index: 30; }

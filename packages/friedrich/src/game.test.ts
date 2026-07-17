@@ -239,6 +239,66 @@ test('a supply train can be moved on its turn', () => {
   assert.equal(s.trains['sup-prussia-1']?.node, nbr);
 });
 
+/** Give a nation a known hand so recruitment payment is deterministic. */
+const withHand = (s: FriedrichState, nation: 'prussia', values: number[]): FriedrichState => ({
+  ...s,
+  hands: {
+    ...s.hands,
+    [nation]: values.map((v, i) => ({ id: `pay-${i}`, kind: 'suit' as const, suit: 'clubs' as const, value: v })),
+  },
+});
+
+test('recruiting spends Tactical Cards as money — 6 points per troop, no change given', () => {
+  // the rulebook's own example rate: pay 13+12 = 25 points for 4 troops (24) — 1 point lost
+  let s = withHand(fresh(), 'prussia', [13, 12]);
+  const before = s.pieces['friedrich']!.troops;
+  s = act(s, { type: 'recruit', by: 'p0', reinforceId: 'friedrich', troops: 4, trains: 0, cardIds: ['pay-0', 'pay-1'] });
+  assert.equal(s.pieces['friedrich']?.troops, before + 4, 'four troops joined Friedrich');
+  assert.equal(s.hands.prussia.length, 0, 'both cards were spent');
+  assert.equal(s.discards.prussia.length, 2, 'spent cards go to the discard pile');
+});
+
+test('recruiting is refused when the cards do not cover the cost', () => {
+  const s = withHand(fresh(), 'prussia', [5]);
+  assert.throws(
+    () => act(s, { type: 'recruit', by: 'p0', reinforceId: 'friedrich', troops: 1, trains: 0, cardIds: ['pay-0'] }),
+    IllegalActionError,
+    '5 points cannot buy a 6-point troop',
+  );
+});
+
+test('a lost general returns at a depot and must receive a troop', () => {
+  const base = fresh();
+  const lost = base.pieces['keith']!;
+  const pieces = { ...base.pieces };
+  delete pieces['keith'];
+  let s: FriedrichState = withHand(
+    { ...base, pieces, offMap: { keith: { id: 'keith', nation: 'prussia', rank: lost.rank } } },
+    'prussia',
+    [13],
+  );
+  // a returning general with no troops is illegal
+  assert.throws(
+    () => act(s, { type: 'recruit', by: 'p0', node: 'juterbog', generalId: 'keith', troops: 0, trains: 0, cardIds: ['pay-0'] }),
+    IllegalActionError,
+  );
+  s = act(s, { type: 'recruit', by: 'p0', node: 'juterbog', generalId: 'keith', troops: 2, trains: 0, cardIds: ['pay-0'] });
+  assert.equal(s.pieces['keith']?.node, 'juterbog', 'Keith is back in the field');
+  assert.equal(s.pieces['keith']?.troops, 2);
+  assert.equal(s.offMap['keith'], undefined, 'no longer off-map');
+  assert.equal(s.stageMoves['keith'], 'juterbog', 'may not move the phase it re-enters');
+});
+
+test('a nation may not exceed its troop establishment', () => {
+  const s = withHand(fresh(), 'prussia', [13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13]);
+  const ids = s.hands.prussia.map((c) => c.id);
+  assert.throws(
+    () => act(s, { type: 'recruit', by: 'p0', reinforceId: 'friedrich', troops: 30, trains: 0, cardIds: ids }),
+    IllegalActionError,
+    'Prussia is capped at 32 troops',
+  );
+});
+
 test('ending a nation stage advances to the next nation in order', () => {
   let s = fresh();
   assert.equal(s.activeNationIndex, 0); // prussia

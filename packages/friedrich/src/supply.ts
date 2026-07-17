@@ -13,6 +13,8 @@ import { sideOf, SUPPLY_RANGE, type Piece, type Train } from './pieces.js';
 import type { Nation } from './powers.js';
 import type { FriedrichState } from './state.js';
 
+const name = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
+
 /** Cities a general may not trace supply through: those holding a hostile piece. */
 function hostileNodes(state: FriedrichState, side: 'attacker' | 'defender'): Set<string> {
   const blocked = new Set<string>();
@@ -58,28 +60,30 @@ export function inSupply(state: FriedrichState, general: Piece): boolean {
 export function runSupplyPhase(
   state: FriedrichState,
   nation: Nation,
-): { pieces: Record<string, Piece>; log: string[] } {
+): { pieces: Record<string, Piece>; log: string[]; removed: Piece[] } {
   const mine = Object.values(state.pieces).filter((p) => p.nation === nation);
   // stacking hazard: any node holding a face-down general drags its stackmates down
   const faceDownNodes = new Set(mine.filter((p) => !p.faceUp).map((p) => p.node));
 
   const pieces: Record<string, Piece> = { ...state.pieces };
   const log: string[] = [];
+  const removed: Piece[] = [];
   for (const g of mine) {
     const supplied = inSupply(state, g);
     const effectivelyDown = !g.faceUp || faceDownNodes.has(g.node);
     if (supplied) {
       if (!g.faceUp) {
         pieces[g.id] = { ...g, faceUp: true };
-        log.push(`${g.id} regains supply.`);
+        log.push(`${name(g.id)} regains supply.`);
       }
     } else if (effectivelyDown) {
       delete pieces[g.id];
-      log.push(`${g.id} starved out of supply — destroyed.`);
+      removed.push(g);
+      log.push(`${name(g.id)} has starved out of supply and is destroyed.`);
     } else {
       pieces[g.id] = { ...g, faceUp: false };
-      log.push(`${g.id} is cut off from supply.`);
+      log.push(`${name(g.id)} is cut off from supply!`);
     }
   }
-  return { pieces, log };
+  return { pieces, log, removed };
 }

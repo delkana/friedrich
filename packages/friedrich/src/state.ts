@@ -32,6 +32,10 @@ export interface FriedrichState extends BaseState {
   readonly pieces: Readonly<Record<string, Piece>>;
   /** Supply trains on the board, keyed by train id. */
   readonly trains: Readonly<Record<string, Train>>;
+  /** Generals lost in the field, available to re-enter at a depot (§10). */
+  readonly offMap: Readonly<Record<string, { id: string; nation: Nation; rank: number }>>;
+  /** Supply trains lost, per nation, available to be bought back. */
+  readonly offMapTrains: Readonly<Record<Nation, number>>;
   /** Each nation's Tactical Card hand. */
   readonly hands: Readonly<Record<Nation, readonly TacticalCard[]>>;
   /** Each nation's face-down draw pile (order is secret — hidden in redaction). */
@@ -65,6 +69,21 @@ export interface FriedrichState extends BaseState {
 export type FriedrichAction =
   | ({ type: 'move'; pieceId: string; to: string } & BaseAction)
   | ({ type: 'moveTrain'; trainId: string; to: string } & BaseAction)
+  /**
+   * Recruit (§10), paying with Tactical Cards used as money (6 points per troop
+   * or supply train; no change given). `generalId` brings a lost general back at
+   * the depot `node` and must receive at least one troop; otherwise `troops`
+   * reinforce the on-map general `reinforceId`. `trains` return at `node`.
+   */
+  | ({
+      type: 'recruit';
+      node?: string;
+      generalId?: string;
+      reinforceId?: string;
+      troops: number;
+      trains: number;
+      cardIds: string[];
+    } & BaseAction)
   | ({ type: 'undoMove'; pieceId: string } & BaseAction)
   | ({ type: 'attack'; attackerId: string; defenderId: string } & BaseAction)
   | ({ type: 'combatPlay'; cardId: string; reserve?: ReservePlay } & BaseAction)

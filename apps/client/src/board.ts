@@ -23,6 +23,7 @@ import {
   NATION_OF_ROLE,
   HIDDEN_TROOPS,
   ATTACKER_NATIONS,
+  DEPOT_CITIES,
   objectiveProgress,
   isEased,
   areEnemies,
@@ -60,7 +61,11 @@ const BOARD_H = 4000;
 let state: FriedrichState = Friedrich.setup('board-demo', ['A', 'B', 'C', 'D']);
 let selected: string | null = null;
 let selectedTrain: string | null = null;
+let hovered: string | null = null; // inspect a stack without selecting it
 let pendingReserve: string | null = null;
+let helpOpen = false;
+let recruitOpen = false;
+const recruit = { troops: 0, trains: 0, cards: new Set<string>() };
 const view = { x: 0, y: 0, w: BOARD_W, h: BOARD_H }; // viewBox
 
 // networking
@@ -495,8 +500,9 @@ function handPanel(): string {
 
 /** The selected general's stack: who's there, ranks, troops, supply. */
 function armyPanel(): string {
-  if (!selected) return '';
-  const p = state.pieces[selected];
+  const focus = hovered ?? selected; // hover to inspect any stack, incl. the enemy's
+  if (!focus) return '';
+  const p = state.pieces[focus];
   if (!p) return '';
   const node = friedrichMap.nodes.get(p.node)!;
   const stack = piecesAt(p.node).filter((x) => x.nation === p.nation).sort((a, b) => a.rank - b.rank);
@@ -504,14 +510,14 @@ function armyPanel(): string {
   const total = known.reduce((n, g) => n + g.troops, 0);
   const rows = stack
     .map((g) => `<div class="gen ${g.faceUp ? '' : 'cut'}">
-        <span>${g.id === selected ? '▸ ' : ''}${g.id} <span style="opacity:.55">rank ${g.rank}</span></span>
+        <span>${g.id === focus ? '▸ ' : ''}${g.id} <span style="opacity:.55">rank ${g.rank}</span></span>
         <span>${g.troops === HIDDEN_TROOPS ? '?' : g.troops}${g.faceUp ? '' : ' ✳'}</span></div>`)
     .join('');
   const cut = stack.some((g) => !g.faceUp)
     ? '<div style="color:#d98a84;font-size:11.5px;margin-top:6px">✳ out of supply — destroyed at its next supply phase unless resupplied</div>'
     : '';
   const obj = node.objectiveFor ? ` · objective of ${NATION_LABEL[node.objectiveFor as Nation]}` : '';
-  return `<h4>Army</h4>
+  return `<h4>${NATION_LABEL[p.nation]}${hovered && hovered !== selected ? ' (inspecting)' : ''}</h4>
     <div class="where">${node.name} · ${SUIT_SYMBOL[node.suit]} ${node.suit}${obj}</div>
     <div class="rows">${rows}<div class="tot">Strength ${total}${known.length < stack.length ? '+?' : ''} troops${stack.length > 1 ? ` · ${stack.length} generals` : ''}</div>${cut}</div>`;
 }
@@ -533,6 +539,76 @@ function statusPanel(): string {
     <div class="bar"><i style="width:${(outCount / 3) * 100}%;background:${NATION_COLOR.prussia}"></i></div>`;
   return `<h4>Victory progress</h4><div class="rows">${rows}${prussia}</div>`;
 }
+
+/** Recruitment dialog (§10): Tactical Cards spent as money at a depot. */
+function recruitBox(): string {
+  const nation = activeNation();
+  const hand = (state.hands[nation] ?? []).filter((c) => c.kind === 'suit');
+  const paid = hand.filter((c) => recruit.cards.has(c.id)).reduce((n, c) => n + (c.kind === 'suit' ? c.value : 0), 0);
+  const cost = (recruit.troops + recruit.trains) * 6;
+  const lost = Object.values(state.offMap).filter((g) => g.nation === nation);
+  const onMap = Object.values(state.pieces).filter((p) => p.nation === nation).sort((a, b) => a.rank - b.rank);
+  const trainsLost = state.offMapTrains[nation] ?? 0;
+  const depots = DEPOT_CITIES[nation] ?? [];
+
+  const targets = [
+    ...onMap.map((p) => `<option value="reinforce:${p.id}">Reinforce ${p.id} (${p.troops === HIDDEN_TROOPS ? '?' : p.troops}) at ${friedrichMap.nodes.get(p.node)?.name}</option>`),
+    ...lost.map((g) => `<option value="return:${g.id}">Bring back ${g.id} (rank ${g.rank}) — needs ≥1 troop</option>`),
+  ].join('');
+
+  const cards = hand
+    .map((c) => {
+      const sel = recruit.cards.has(c.id) ? 'sel' : '';
+      const red = c.kind === 'suit' && isRed(c.suit) ? 'red' : '';
+      return `<div class="tc sm ${red} ${sel} playable" data-rec="card:${c.id}"><span class="sym">${c.kind === 'suit' ? SUIT_SYMBOL[c.suit] : ''}</span><span class="val">${c.kind === 'suit' ? c.value : ''}</span></div>`;
+    })
+    .join('') || '<span style="color:#9c8f74">— no cards to spend —</span>';
+
+  return `<div id="recruit-box">
+    <h3>Recruitment</h3>
+    <p class="sub">Tactical Cards are spent as money — <b>6 points</b> per troop and per supply train.
+    A returning general is free but must receive at least one troop. No change is given for overpayment.</p>
+    <div class="rec-row"><span>Troops</span>
+      <button class="gb" data-rec="t-">−</button><b class="rec-n">${recruit.troops}</b><button class="gb" data-rec="t+">+</button></div>
+    <div class="rec-row"><span>Give to</span><select id="rec-target">${targets || '<option value="">— nobody available —</option>'}</select></div>
+    ${trainsLost > 0 ? `<div class="rec-row"><span>Supply trains <small>(${trainsLost} lost)</small></span>
+      <button class="gb" data-rec="s-">−</button><b class="rec-n">${recruit.trains}</b><button class="gb" data-rec="s+">+</button></div>` : ''}
+    <div class="rec-row"><span>Depot <small>(for returning pieces)</small></span>
+      <select id="rec-depot">${depots.map((d) => `<option value="${d}">${friedrichMap.nodes.get(d)?.name ?? d}</option>`).join('')}</select></div>
+    <div class="rec-cards"><div class="sub" style="margin:6px 0 4px">Click cards to spend them:</div><div class="hand-cards">${cards}</div></div>
+    <div class="rec-total ${paid >= cost && cost > 0 ? 'ok' : ''}">Cost <b>${cost}</b> · Paying <b>${paid}</b>${paid > cost && cost > 0 ? ` <small>(${paid - cost} lost)</small>` : ''}</div>
+    <div class="duel-controls">
+      <button class="gb primary" data-rec="go" ${cost > 0 && paid >= cost ? '' : 'disabled'}>Recruit</button>
+      <button class="gb" data-rec="cancel">Cancel</button>
+    </div>
+  </div>`;
+}
+
+const HELP_HTML = `<div id="help-box">
+  <h3>How Friedrich works</h3>
+  <div class="help-grid">
+    <section><h5>The war</h5><p>You are one of the powers of the Seven Years' War. Prussia (Frederick) fights
+      alone against everyone. Each <b>attacker</b> wins the moment it holds <b>all its objective cities</b>
+      (the coloured banners on the map). <b>Prussia wins by surviving</b> — from turn 6 the Clock of Fate
+      draws a card each turn, and once Russia, Sweden and France have all quit the war, Frederick has won.</p></section>
+    <section><h5>Your turn</h5><p>Nations act in a fixed order each turn. On your stage you draw cards,
+      then move each general <b>once</b> (3 cities, 4 if entirely along a thick main road — you cannot move
+      through another piece), then attack. Right-click or click empty ground to deselect; use <b>Undo Move</b>
+      before you commit.</p></section>
+    <section><h5>Battle</h5><p>Strength = a general's <b>secret troops</b> + the <b>Tactical Cards</b> it plays.
+      You may only play cards matching the <b>suit of the sector your general stands in</b> (Reserves are wild) —
+      that's why the same card is decisive in one province and useless in the next. The side that is behind plays;
+      the instant it draws level the turn passes. Whoever cannot or will not play <b>loses</b>, taking casualties
+      equal to the gap and retreating that many cities.</p></section>
+    <section><h5>Supply</h5><p>A general is in supply in its <b>home country</b>, or if it can trace ≤6 cities —
+      never through an enemy — to one of its <b>supply trains</b>. Cut off, it flips face-down (red dot);
+      if it is still cut off at its next supply phase it is <b>destroyed</b>. Russia and France have no home
+      country: their trains are their lifeline, and taking one is a real blow.</p></section>
+    <section><h5>Recruitment</h5><p>Cards are also <b>money</b>: 6 points per troop or supply train, spent at
+      one of your <b>depot cities</b>. Every card you spend on logistics is one you cannot fight with.</p></section>
+  </div>
+  <div class="duel-controls"><button class="gb primary" data-help="close">Close</button></div>
+</div>`;
 
 function renderChrome(): void {
   const nation = activeNation();
@@ -589,9 +665,19 @@ function renderChrome(): void {
   statusEl.innerHTML = statusPanel();
   statusEl.hidden = inBattle;
 
+  (document.getElementById('btn-recruit') as HTMLButtonElement).disabled = !!state.combat || !myTurn;
+
   const overlay = document.getElementById('combat-overlay')!;
   if (state.combat) { overlay.classList.add('show'); overlay.innerHTML = combatBox(); }
   else { overlay.classList.remove('show'); overlay.innerHTML = ''; }
+
+  const rec = document.getElementById('recruit-overlay')!;
+  if (recruitOpen && !state.combat) { rec.classList.add('show'); rec.innerHTML = recruitBox(); }
+  else { rec.classList.remove('show'); rec.innerHTML = ''; }
+
+  const help = document.getElementById('help-overlay')!;
+  if (helpOpen) { help.classList.add('show'); help.innerHTML = HELP_HTML; }
+  else { help.classList.remove('show'); help.innerHTML = ''; }
 
   // Clock of Fate + withdrawn nations
   const fateTag = document.getElementById('fate-tag')!;
@@ -712,8 +798,14 @@ function onPieceClick(pieceId: string): void {
 }
 
 function onHudClick(e: Event): void {
-  const t = (e.target as Element).closest('[data-card],[data-resval],#cpass,#btn-end,#btn-reset,#btn-undo,#go-again,#zoom-in,#zoom-out,#zoom-fit') as HTMLElement | null;
+  const rt = (e.target as Element).closest('[data-rec]') as HTMLElement | null;
+  if (rt) return onRecruitClick(rt.dataset.rec!);
+  const ht = (e.target as Element).closest('[data-help],#btn-help') as HTMLElement | null;
+  if (ht) { helpOpen = ht.id === 'btn-help'; renderChrome(); return; }
+
+  const t = (e.target as Element).closest('[data-card],[data-resval],#cpass,#btn-end,#btn-reset,#btn-undo,#btn-recruit,#go-again,#zoom-in,#zoom-out,#zoom-fit') as HTMLElement | null;
   if (!t) return;
+  if (t.id === 'btn-recruit') { recruitOpen = true; recruit.troops = 0; recruit.trains = 0; recruit.cards.clear(); renderChrome(); return; }
   if (t.id === 'btn-undo') { if (selected) dispatch({ type: 'undoMove', pieceId: selected }); return; }
   if (t.id === 'btn-end') { selected = null; dispatch({ type: 'endNationTurn' }); return; }
   if (t.id === 'btn-reset' || t.id === 'go-again') { state = Friedrich.setup('board-demo', ['A', 'B', 'C', 'D']); selected = null; renderMap(); renderChrome(); return; }
@@ -723,6 +815,38 @@ function onHudClick(e: Event): void {
   if (t.id === 'cpass') { pendingReserve = null; dispatch({ type: 'combatPass' }); return; }
   if (t.dataset.resval) return onReserveValue(t.dataset.resval);
   if (t.dataset.card) return onCombatCard(t.dataset.card);
+}
+
+function onRecruitClick(cmd: string): void {
+  if (cmd === 'cancel') { recruitOpen = false; renderChrome(); return; }
+  if (cmd === 't+') recruit.troops++;
+  if (cmd === 't-') recruit.troops = Math.max(0, recruit.troops - 1);
+  if (cmd === 's+') recruit.trains++;
+  if (cmd === 's-') recruit.trains = Math.max(0, recruit.trains - 1);
+  if (cmd.startsWith('card:')) {
+    const id = cmd.slice(5);
+    if (recruit.cards.has(id)) recruit.cards.delete(id);
+    else recruit.cards.add(id);
+  }
+  if (cmd === 'go') {
+    const target = (document.getElementById('rec-target') as HTMLSelectElement | null)?.value ?? '';
+    const node = (document.getElementById('rec-depot') as HTMLSelectElement | null)?.value;
+    const [kind, id] = target.split(':');
+    recruitOpen = false;
+    // build without empty keys (exactOptionalPropertyTypes)
+    const action: Extract<WithoutBy<FriedrichAction>, { type: 'recruit' }> = {
+      type: 'recruit',
+      troops: recruit.troops,
+      trains: recruit.trains,
+      cardIds: [...recruit.cards],
+      ...(node ? { node } : {}),
+      ...(kind === 'return' && id ? { generalId: id } : {}),
+      ...(kind === 'reinforce' && id ? { reinforceId: id } : {}),
+    };
+    dispatch(action);
+    return;
+  }
+  renderChrome();
 }
 
 function onCombatCard(cardId: string): void {
@@ -759,6 +883,7 @@ function mount(): void {
       <div class="bar-spacer"></div>
       <div id="fate-tag" class="muted-tag" hidden></div>
       <div id="you-tag" class="muted-tag"></div>
+      <button class="gb" id="btn-help" title="How to play">?</button>
       <div class="navlinks"><a href="/duel.html">Duel</a></div>
     </div>
     <div id="map-view">
@@ -776,6 +901,7 @@ function mount(): void {
           <div id="command" class="panel">
             <span id="status-line"></span>
             <button class="gb" id="btn-undo" hidden>Undo Move</button>
+            <button class="gb" id="btn-recruit">Recruit</button>
             <button class="gb primary" id="btn-end">End Stage</button>
             <button class="gb" id="btn-reset">New Game</button>
           </div>
@@ -786,15 +912,29 @@ function mount(): void {
           <button class="gb" id="zoom-fit">⤢</button>
         </div>
         <div id="combat-overlay"></div>
+        <div id="recruit-overlay" class="modal"></div>
+        <div id="help-overlay" class="modal"></div>
         <div id="gameover"></div>
       </div>
     </div>
     <div id="lobby"><div id="lobby-card"></div></div>`;
 
-  document.getElementById('board-root')!.addEventListener('click', onBoardClick);
+  const root = document.getElementById('board-root')!;
+  root.addEventListener('click', onBoardClick);
+  // hover any counter (including the enemy's) to inspect that stack
+  root.addEventListener('mouseover', (e) => {
+    const el = (e.target as Element).closest('[data-piece]');
+    const id = el?.getAttribute('data-piece') ?? null;
+    if (id !== hovered) { hovered = id; renderChrome(); }
+  });
+  root.addEventListener('mouseout', (e) => {
+    if ((e.target as Element).closest('[data-piece]') && hovered) { hovered = null; renderChrome(); }
+  });
   document.getElementById('map-view')!.addEventListener('contextmenu', onBoardContextMenu);
   document.getElementById('hud')!.addEventListener('click', onHudClick);
   document.getElementById('lobby')!.addEventListener('click', onLobbyClick);
+  // the help button lives in the topbar, outside the delegated HUD handler
+  document.getElementById('btn-help')!.addEventListener('click', () => { helpOpen = true; renderChrome(); });
   setupPanZoom();
   fitView();
   renderMap();

@@ -76,6 +76,30 @@ export const INITIAL_TRAINS: readonly Train[] = [
   { id: 'sup-france-2', nation: 'france', node: 'gemunden' },
 ];
 
+/**
+ * Recruitment (rulebook §10). Tactical Cards are spent like money — their point
+ * values — to bring troops, supply trains and lost generals back at a depot
+ * city. A general itself is free but must receive at least one new troop, and no
+ * nation may exceed its starting troop establishment.
+ */
+export const RECRUIT_COST = 6; // points of TC per troop, and per supply train
+
+/** Each nation's troop establishment (its starting total; a hard ceiling). */
+export const TROOP_MAX: Record<Nation, number> = {
+  prussia: 32, hanover: 12, russia: 16, sweden: 4, austria: 30, imperial: 6, france: 20,
+};
+
+/** Depot cities where a nation's pieces may re-enter play (per the army sheet). */
+export const DEPOT_CITIES: Record<Nation, readonly NodeId[]> = {
+  prussia: ['juterbog', 'grunberg'],
+  hanover: ['hannover'],
+  russia: ['torun', 'warszawa'],
+  sweden: ['wismar'],
+  austria: ['beraun', 'pardubitz'],
+  imperial: ['erlangen'],
+  france: ['koblenz', 'gemunden'],
+};
+
 /** How far a supply line can be traced (in cities). */
 export const SUPPLY_RANGE = 6;
 /** Movement allowance for a supply train (cities); +1 entirely on main roads. */

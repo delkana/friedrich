@@ -20,6 +20,9 @@ import {
   MAX_STACK,
   TRAIN_MOVE,
   TRAIN_MOVE_MAIN,
+  RECRUIT_COST,
+  TROOP_MAX,
+  DEPOT_CITIES,
   areEnemies,
   sideOf,
   type Piece,
@@ -48,6 +51,10 @@ function assignSeats(players: readonly PlayerId[]): Record<PlayerId, Role[]> {
 }
 
 const activeNationOf = (s: FriedrichState): Nation => NATION_ORDER[s.activeNationIndex]!;
+
+/** Display helpers so the dispatch log reads like a report, not like ids. */
+export const cityName = (id: string): string => friedrichMap.nodes.get(id)?.name ?? id;
+export const properName = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
 
 function occupiedNodes(pieces: PieceMap): Set<string> {
   const set = new Set<string>();
@@ -132,22 +139,28 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
 
     if (r.loserEliminated) {
       for (const p of stack) delete pieces[p.id];
-      log.push(`${loserNation} at ${loserNode} was wiped out (${r.casualties} lost).`);
+      log.push(`${properName(loserNation)}'s force at ${cityName(loserNode)} is wiped out (${r.casualties} troops lost).`);
     } else {
       applyCasualties(pieces, stack, r.casualties);
       const survivors = stack.filter((p) => pieces[p.id]);
       const dest = retreatNode(pieces, loserNode, winnerNode, r.casualties);
       if (!dest) {
         for (const p of survivors) delete pieces[p.id];
-        log.push(`${loserNation} lost ${r.casualties} and could not retreat — destroyed.`);
+        log.push(`${properName(loserNation)} lost ${r.casualties} and could not retreat — destroyed.`);
       } else {
         for (const p of survivors) pieces[p.id] = { ...pieces[p.id]!, node: dest };
-        log.push(`${loserNation} lost ${r.casualties}, retreated ${r.casualties} to ${dest}.`);
+        log.push(`${properName(loserNation)} loses ${r.casualties} and retreats ${r.casualties} to ${cityName(dest)}.`);
       }
     }
   }
 
-  return { ...state, version: state.version + 1, pieces, hands, discards, combat: null, log };
+  // generals lost in the battle go off-map, where they may be recruited back (§10)
+  const offMap = { ...state.offMap };
+  for (const [id, p] of Object.entries(state.pieces)) {
+    if (!pieces[id]) offMap[id] = { id: p.id, nation: p.nation, rank: p.rank };
+  }
+
+  return { ...state, version: state.version + 1, pieces, hands, discards, offMap, combat: null, log };
 }
 
 // ---- card draw + deck cycling --------------------------------------------
@@ -333,6 +346,8 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       activeNationIndex: 0,
       pieces,
       trains,
+      offMap: {},
+      offMapTrains: { prussia: 0, hanover: 0, russia: 0, sweden: 0, austria: 0, imperial: 0, france: 0 },
       hands,
       decks,
       discards,
@@ -378,10 +393,11 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
 
         const pieces = { ...state.pieces, [piece.id]: { ...piece, node: action.to } };
         const dest = friedrichMap.nodes.get(action.to)!;
-        const log = [`${piece.id} → ${action.to}.`];
+        const log = [`${properName(piece.id)} marches to ${dest.name}.`];
 
         // capture an enemy supply train standing in the entered city
         let trains = state.trains;
+        let offMapTrains = state.offMapTrains;
         const enemyTrain = Object.values(state.trains).find(
           (t) => t.node === action.to && sideOf(t.nation) !== sideOf(piece.nation),
         );
@@ -389,6 +405,8 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           const tr = { ...state.trains };
           delete tr[enemyTrain.id];
           trains = tr;
+          // the loser may buy it back later at a depot (§10)
+          offMapTrains = { ...state.offMapTrains, [enemyTrain.nation]: (state.offMapTrains[enemyTrain.nation] ?? 0) + 1 };
           log.push(`${piece.nation} captures a ${enemyTrain.nation} supply train at ${dest.name}!`);
         }
 
@@ -412,6 +430,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           version: state.version + 1,
           pieces,
           trains,
+          offMapTrains,
           conquered,
           stageMoves: { ...state.stageMoves, [piece.id]: piece.node },
           log: [...state.log, ...log],
@@ -446,6 +465,103 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           version: state.version + 1,
           trains: { ...state.trains, [train.id]: { ...train, node: action.to } },
           log: [...state.log, `${train.nation} supply train → ${action.to}.`],
+        };
+      }
+
+      case 'recruit': {
+        if (state.combat) throw new IllegalActionError('Finish the current battle first.');
+        const nation = activeNationOf(state);
+        const { troops, trains: wantTrains, cardIds } = action;
+        if (troops < 0 || wantTrains < 0 || (troops === 0 && wantTrains === 0)) {
+          throw new IllegalActionError('Nothing to recruit.');
+        }
+        // a depot is only needed for pieces actually re-entering
+        const needsDepot = !!action.generalId || wantTrains > 0;
+        if (needsDepot) {
+          if (!action.node || !DEPOT_CITIES[nation].includes(action.node)) {
+            throw new IllegalActionError('Pieces may only re-enter at one of your depot cities.');
+          }
+        }
+        const there = action.node ? piecesAtNode(state.pieces, action.node) : [];
+        if (needsDepot && there.some((p) => p.nation !== nation)) {
+          throw new IllegalActionError('Another nation holds that depot.');
+        }
+
+        // troop establishment ceiling
+        const onMap = Object.values(state.pieces).filter((p) => p.nation === nation).reduce((n, p) => n + p.troops, 0);
+        if (onMap + troops > TROOP_MAX[nation]) {
+          throw new IllegalActionError(`${nation} may not exceed its establishment of ${TROOP_MAX[nation]} troops.`);
+        }
+
+        // a re-entering general is free but must receive at least one troop
+        const general = action.generalId ? state.offMap[action.generalId] : undefined;
+        let reinforce: Piece | undefined;
+        if (action.generalId) {
+          if (!general || general.nation !== nation) throw new IllegalActionError('No such lost general.');
+          if (troops < 1) throw new IllegalActionError('A returning general must receive at least one new troop.');
+          if (there.length >= MAX_STACK) throw new IllegalActionError('That depot is already stacked to the limit.');
+        } else if (troops > 0) {
+          // troops may reinforce any general already on the map
+          reinforce = action.reinforceId ? state.pieces[action.reinforceId] : undefined;
+          if (!reinforce || reinforce.nation !== nation) {
+            throw new IllegalActionError('Choose one of your generals on the map to reinforce.');
+          }
+        }
+        if (wantTrains > (state.offMapTrains[nation] ?? 0)) throw new IllegalActionError('No lost supply train to bring back.');
+        // a returning train may not share the depot with generals (§10 example)
+        if (wantTrains > 0 && there.length > 0) throw new IllegalActionError('That depot is occupied — a supply train needs an empty city.');
+
+        // pay: TCs are money, any suit; no change is given for overpayment
+        const paying = cardIds.map((id) => state.hands[nation].find((c) => c.id === id));
+        if (paying.some((c) => !c)) throw new IllegalActionError('You do not hold those cards.');
+        if (paying.some((c) => c!.kind === 'reserve')) throw new IllegalActionError('A Reserve cannot be spent as money.');
+        const paid = paying.reduce((n, c) => n + (c!.kind === 'suit' ? c!.value : 0), 0);
+        const cost = (troops + wantTrains) * RECRUIT_COST;
+        if (paid < cost) throw new IllegalActionError(`That costs ${cost} points of Tactical Cards; you offered ${paid}.`);
+
+        const spent = new Set(cardIds);
+        const hands = { ...state.hands, [nation]: state.hands[nation].filter((c) => !spent.has(c.id)) };
+        const discards = { ...state.discards, [nation]: [...state.discards[nation], ...paying.map((c) => c!)] };
+        const where = action.node ? friedrichMap.nodes.get(action.node)?.name ?? action.node : '';
+        const log = [`${nation} recruits ${troops} troop(s)${wantTrains ? ` and ${wantTrains} supply train(s)` : ''} for ${cost} points (paid ${paid}).`];
+
+        const pieces = { ...state.pieces };
+        const offMap = { ...state.offMap };
+        if (general && action.node) {
+          // re-enters with the new troops; may not move this phase
+          pieces[general.id] = { id: general.id, nation, rank: general.rank, node: action.node, troops, faceUp: true };
+          delete offMap[general.id];
+          log.push(`${general.id} returns to the field at ${where}.`);
+        } else if (reinforce) {
+          pieces[reinforce.id] = { ...reinforce, troops: reinforce.troops + troops };
+          log.push(`${reinforce.id} is reinforced to ${reinforce.troops + troops} troops.`);
+        }
+
+        let trains = state.trains;
+        let offMapTrains = state.offMapTrains;
+        if (wantTrains > 0 && action.node) {
+          const t = { ...trains };
+          for (let i = 0; i < wantTrains; i++) {
+            const id = `sup-${nation}-r${state.version}-${i}`;
+            t[id] = { id, nation, node: action.node };
+          }
+          trains = t;
+          offMapTrains = { ...offMapTrains, [nation]: (offMapTrains[nation] ?? 0) - wantTrains };
+          log.push(`A ${nation} supply train returns at ${where}.`);
+        }
+
+        return {
+          ...state,
+          version: state.version + 1,
+          pieces,
+          trains,
+          offMap,
+          offMapTrains,
+          hands,
+          discards,
+          // a re-entering general may not move in the phase it returns
+          stageMoves: general && action.node ? { ...state.stageMoves, [general.id]: action.node } : state.stageMoves,
+          log: [...state.log, ...log],
         };
       }
 
@@ -496,7 +612,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           version: state.version + 1,
           combat,
           stageMoves: {}, // committing to a battle finalizes this stage's moves
-          log: [...state.log, `${atk.nation} attacks ${def.nation} at ${def.node}.`],
+          log: [...state.log, `${properName(atk.nation)} attacks ${properName(def.nation)} at ${cityName(def.node)}.`],
         };
       }
 
@@ -520,10 +636,11 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         // the ending nation's supply phase: recover / cut off / annihilate
         const ending = activeNationOf(state);
         const supply = runSupplyPhase(state, ending);
-        const supplied: FriedrichState = supply.log.length
-          ? { ...state, pieces: supply.pieces, log: [...state.log, ...supply.log] }
-          : state;
-        state = supplied;
+        if (supply.log.length) {
+          const offMap = { ...state.offMap };
+          for (const p of supply.removed) offMap[p.id] = { id: p.id, nation: p.nation, rank: p.rank };
+          state = { ...state, pieces: supply.pieces, offMap, log: [...state.log, ...supply.log] };
+        }
 
         // advance to the next nation still in the war, detecting a full round
         let idx = state.activeNationIndex;
