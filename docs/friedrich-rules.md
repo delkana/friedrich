@@ -17,6 +17,17 @@ This is the spec the engine is built against. Confidence levels noted at the end
 - 4p: one role each. 3p: one seat runs **both Elisabeth and Pompadour**. Frederick
   is always a standalone defender.
 
+## How to start (rulebook "How to start")
+1. The four roles are **raffled** to the players (by drawing the 13,13,13,13).
+2. All pieces go on their printed set-up cities: generals on the city marked with
+   their rank number in their colour, supply trains on cities marked "T".
+3. Each player **secretly allots** their nation's whole establishment across its
+   generals — min 1 each, max per the army-sheet limit (see below).
+4. **One** of the four Tactical Card decks is shuffled as the shared draw deck;
+   the other three are set aside. **No nation holds any cards** at the start —
+   each draws its allotment as its own action stage opens.
+5. Shuffle the 18 Cards of Fate onto the hour glass. (Eased variant: see below.)
+
 ## Map & the four suits
 - Point-to-point graph: cities = nodes, roads = edges. Two road classes; **main
   roads** (thick) give a movement bonus.
@@ -32,8 +43,14 @@ This is the spec the engine is built against. Confidence levels noted at the end
 
 ## Combat — suit-restricted bidding duel (no dice, no general TV)
 - **Tactical Card (TC): one suit + one value 2..13.** Plus **Reserve** (wild):
-  declared on play as any suit, value 1..10. Each power owns a **50-card deck** =
-  48 suited (2..13 ×4) + 2 Reserves.
+  declared on play as any suit, value 1..10. A deck is **50 cards** = 48 suited
+  (2..13 ×4) + 2 Reserves.
+- The box holds **four such decks**, and they are used **one at a time**: one is
+  shuffled as the **single draw deck shared by all players** and the other three
+  are set aside. Played cards are set aside **sorted by their deck of origin**;
+  when the draw deck runs out the next pristine deck is opened, and once all four
+  have been used up the **two piles that accumulated most** are shuffled together.
+  (So cards are a contested common pool, not a private per-nation supply.)
 - A general may only play TCs matching **its own sector's suit**. If the two
   generals stand in different sectors, each plays its own suit. Reserve escapes
   the restriction.
@@ -61,14 +78,32 @@ persist across turns; TCs are also **spent like money** to build/move supply
 trains. Some Cards of Fate reduce these.
 
 ## Generals & armies
-- 24 generals, 11 supply trains, 7 colors. Split (medium confidence): Prussia 8,
-  Austria 5, Russia 4, France 3, Hanover 2, Sweden 1, Imperial 1.
-- Confirmed Prussian ranks: 1 Friedrich, 2 Winterfeldt, 3 Heinrich, 4 Schwerin,
-  5 Keith (ranks 6–8 unknown). Others: FR Richelieu/Soubise; AT Daun/Laudon;
-  HA Cumberland/Ferdinand of Brunswick.
-- Troops secret per general, **1..8**; a nation may never exceed its starting
-  total (France 20, Austria 30, Imperial 6, Prussia 24). Transfer freely within a
-  stack, never between unstacked generals.
+Confirmed against the official army sheet (`FriedrichArmeeplan.pdf`) — high
+confidence; ranks, counts and establishments below are authoritative.
+
+| Nation | Generals | Trains | Establishment | Per general |
+|---|---|---|---|---|
+| Prussia | 8 | 2 | 32 | 1–8 |
+| Hanover | 2 | 1 | 12 | 1–8 |
+| Russia | 4 | 2 | 16 | 1–8 |
+| Sweden | 1 | 1 | 4 | 1–4 |
+| Austria | 5 | 2 | 30 | 1–8 |
+| Imperial | 1 | 1 | 6 | 1–6 |
+| France | 3 | 2 | 20 | 1–8 |
+
+- Ranks: **PR** 1 Friedrich, 2 Winterfeldt, 3 Prinz Heinrich, 4 Schwerin,
+  5 Keith, 6 Seydlitz, 7 Dohna, 8 Lehwaldt · **HA** 1 Ferdinand v. Braunschweig,
+  2 Cumberland · **RU** 1 Saltikov, 2 Fermor, 3 Apraxin, 4 Tottleben ·
+  **SE** 1 Ehrensvärd · **AT** 1 Daun, 2 Browne, 3 Karl v. Lothringen, 4 Laudon,
+  5 Lacy · **IM** 1 Hildburghausen · **FR** 1 Richelieu, 2 Soubise, 3 Chevert.
+- Troops are **secret per general**; at set-up each player **secretly allots the
+  whole establishment** across that nation's generals within the per-general
+  limits above. The establishment is also a hard ceiling on recruitment.
+  Transfer freely within a stack, never between unstacked generals.
+- The sheet gives each general's start city as a **map grid reference** (Friedrich
+  F4, Lehwaldt M9, …). Those margin coordinates are not in our extracted map data,
+  so `pieces.ts` uses the historically sensible city in the right sector; every one
+  is test-verified to start in supply. Mapping the grid is the way to make these exact.
 - **Supply train**: a cube, cannot fight or hold objectives (exception: the
   Imperial supply train protects objectives like a general, radius 3). One train
   supplies unlimited same-color generals. Captured when an enemy general enters
@@ -208,6 +243,21 @@ VASSAL setup stacks. Start sectors in parens (army-sheet grid refs).
   tiled for the transcription fleet (`docs/assets/extraction/tile-*.json`).
 - BGG entry is id **12891** (not 9625). BGG HTML/xmlapi 403 anonymously; use
   api.geekdo.com/api/files?objectid=12891&objecttype=thing.
+
+## Known divergences (engine vs rulebook)
+
+Deliberate simplifications still in the code. None is load-bearing for a playable
+game, but each is a real difference a rules lawyer would catch.
+
+- **France's discard is not a choice.** The sheet says: "Of the four Tactical
+  Cards drawn each turn, select one to discard immediately." We discard the last
+  card drawn instead of letting France pick. Needs a pending-discard sub-phase.
+- **Retreat path is not chosen by the winner.** The loser is placed on the
+  reachable empty city farthest from the winner; the rules give the winner the
+  choice of path.
+- **No substitute recruitment site.** If every depot is blocked, the rules allow
+  recruiting elsewhere at a premium (8 points); we simply refuse.
+- **Set-up cities are inferred, not exact** — see Generals & armies above.
 
 ## Confidence
 - **High:** player counts/groupings, no-TV combat, card face, suit/sector rule,

@@ -126,16 +126,15 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
     [combat.attackerNation]: duel.attacker.hand,
     [combat.defenderNation]: duel.defender.hand,
   };
-  // cards played in the battle go to each nation's discard pile
+  // cards played in the battle are set aside on their own deck's pile
   const playedBy = (nation: Nation, remaining: readonly TacticalCard[]): TacticalCard[] => {
     const rem = new Set(remaining.map((c) => c.id));
     return state.hands[nation].filter((c) => !rem.has(c.id));
   };
-  const discards = {
-    ...state.discards,
-    [combat.attackerNation]: [...state.discards[combat.attackerNation], ...playedBy(combat.attackerNation, duel.attacker.hand)],
-    [combat.defenderNation]: [...state.discards[combat.defenderNation], ...playedBy(combat.defenderNation, duel.defender.hand)],
-  };
+  const playedSets = setAside(state.playedSets, [
+    ...playedBy(combat.attackerNation, duel.attacker.hand),
+    ...playedBy(combat.defenderNation, duel.defender.hand),
+  ]);
   const pieces: PieceMap = { ...state.pieces };
   const log = [...state.log];
 
@@ -170,53 +169,117 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
     if (!pieces[id]) offMap[id] = { id: p.id, nation: p.nation, rank: p.rank };
   }
 
-  return { ...state, version: state.version + 1, pieces, hands, discards, offMap, combat: null, log };
+  return { ...state, version: state.version + 1, pieces, hands, playedSets, offMap, combat: null, log };
 }
 
 // ---- card draw + deck cycling --------------------------------------------
 
-/** Draw `count` cards, reshuffling the discard pile into the deck when it runs dry. */
-function drawCards(
-  rng: FriedrichState['rng'],
-  deck: readonly TacticalCard[],
-  discard: readonly TacticalCard[],
-  count: number,
-): { rng: FriedrichState['rng']; deck: TacticalCard[]; discard: TacticalCard[]; drawn: TacticalCard[] } {
-  let d = [...deck];
-  let disc = [...discard];
-  let r = rng;
-  const drawn: TacticalCard[] = [];
-  for (let i = 0; i < count; i++) {
-    if (d.length === 0) {
-      if (disc.length === 0) break; // truly out of cards
-      const sh = rngShuffle(r, disc);
-      r = sh.r;
-      d = sh.items;
-      disc = [];
-    }
-    drawn.push(d.shift()!);
+/** The box holds four identical 50-card Tactical Card decks (rule 3). */
+export const CARD_SETS = 4;
+const setName = (i: number): string => `set${i + 1}`;
+/** Which of the four decks a card was printed with. */
+const setIndexOf = (card: TacticalCard): number => Math.max(0, CARD_SET_NAMES.indexOf(card.origin ?? ''));
+const CARD_SET_NAMES: readonly string[] = Array.from({ length: CARD_SETS }, (_, i) => setName(i));
+
+/** Set played cards aside on the pile of their own deck of origin. */
+function setAside(
+  playedSets: FriedrichState['playedSets'],
+  cards: readonly TacticalCard[],
+): TacticalCard[][] {
+  const piles = playedSets.map((p) => [...p]);
+  for (const card of cards) piles[setIndexOf(card)]!.push(card);
+  return piles;
+}
+
+/**
+ * Refill the draw deck (rule 3). While pristine decks remain, the next one is
+ * shuffled and becomes the draw deck. Once all four have been used up, the two
+ * piles that have accumulated the most played cards are shuffled together.
+ */
+function refillDeck(state: {
+  rng: FriedrichState['rng'];
+  playedSets: FriedrichState['playedSets'];
+  setsUsed: number;
+}): { rng: FriedrichState['rng']; deck: TacticalCard[]; playedSets: TacticalCard[][]; setsUsed: number; note: string } {
+  const piles = state.playedSets.map((p) => [...p]);
+  if (state.setsUsed < CARD_SETS) {
+    // a fresh deck: its cards have never been dealt, so the pile for it is empty
+    const sh = rngShuffle(state.rng, buildTacticalDeck(setName(state.setsUsed)));
+    return {
+      rng: sh.r,
+      deck: sh.items,
+      playedSets: piles,
+      setsUsed: state.setsUsed + 1,
+      note: `Tactical Card deck ${state.setsUsed} is used up — deck ${state.setsUsed + 1} is opened.`,
+    };
   }
-  return { rng: r, deck: d, discard: disc, drawn };
+  // all four decks opened: recycle the two fullest piles
+  const order = piles.map((p, i) => i).sort((a, b) => piles[b]!.length - piles[a]!.length);
+  const [x, y] = [order[0]!, order[1]!];
+  const sh = rngShuffle(state.rng, [...piles[x]!, ...piles[y]!]);
+  piles[x] = [];
+  piles[y] = [];
+  return {
+    rng: sh.r,
+    deck: sh.items,
+    playedSets: piles,
+    setsUsed: state.setsUsed,
+    note: `Decks ${x + 1} and ${y + 1} are shuffled back together (${sh.items.length} cards).`,
+  };
+}
+
+/** Draw `count` cards from the shared deck, opening the next deck when it runs dry. */
+function drawCards(
+  state: { rng: FriedrichState['rng']; drawDeck: readonly TacticalCard[]; playedSets: FriedrichState['playedSets']; setsUsed: number },
+  count: number,
+): {
+  rng: FriedrichState['rng'];
+  drawDeck: TacticalCard[];
+  playedSets: TacticalCard[][];
+  setsUsed: number;
+  drawn: TacticalCard[];
+  log: string[];
+} {
+  let deck = [...state.drawDeck];
+  let piles: TacticalCard[][] = state.playedSets.map((p) => [...p]);
+  let rng = state.rng;
+  let setsUsed = state.setsUsed;
+  const drawn: TacticalCard[] = [];
+  const log: string[] = [];
+  for (let i = 0; i < count; i++) {
+    if (deck.length === 0) {
+      const r = refillDeck({ rng, playedSets: piles, setsUsed });
+      if (r.deck.length === 0) break; // every card is in someone's hand
+      rng = r.rng;
+      deck = r.deck;
+      piles = r.playedSets;
+      setsUsed = r.setsUsed;
+      log.push(r.note);
+    }
+    drawn.push(deck.shift()!);
+  }
+  return { rng, drawDeck: deck, playedSets: piles, setsUsed, drawn, log };
 }
 
 /** The first phase of a nation's stage: draw its Tactical Card allotment. */
 function beginStage(state: FriedrichState, nation: Nation): FriedrichState {
   const allot = state.drawAllot[nation] ?? 0;
   if (allot <= 0) return state;
-  const res = drawCards(state.rng, state.decks[nation], state.discards[nation], allot);
+  const res = drawCards(state, allot);
   let hand: TacticalCard[] = [...state.hands[nation], ...res.drawn];
-  let discard = res.discard;
-  const log = [`${nation} draws ${res.drawn.length} card(s).`];
+  let playedSets: TacticalCard[][] = res.playedSets;
+  const log = [...res.log, `${properName(nation)} draws ${res.drawn.length} card(s).`];
   if (nation === 'france' && hand.length > 0) {
-    discard = [...discard, hand[hand.length - 1]!]; // France discards one face-down
+    playedSets = setAside(playedSets, [hand[hand.length - 1]!]); // France discards one face-down
     hand = hand.slice(0, -1);
     log.push('France discards a card face-down.');
   }
   return {
     ...state,
     rng: res.rng,
-    decks: { ...state.decks, [nation]: res.deck },
-    discards: { ...state.discards, [nation]: discard },
+    drawDeck: res.drawDeck,
+    playedSets,
+    setsUsed: res.setsUsed,
     hands: { ...state.hands, [nation]: hand },
     log: [...state.log, ...log],
   };
@@ -328,18 +391,15 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       throw new IllegalActionError(`Friedrich supports ${this.minPlayers}-${this.maxPlayers} players.`);
     }
     let rng = seedFromString(seed);
-    // each nation gets a shuffled 50-card deck; hands start empty and are drawn
-    // at the start of each nation's stage
-    const decks: Record<Nation, TacticalCard[]> = {} as Record<Nation, TacticalCard[]>;
+    // "Shuffle one of the four Tactical Card decks for immediate use by all four
+    // players. Set aside the other 3 decks for later." No nation holds any cards
+    // at the start; each draws its allotment as its own stage opens.
+    const first = rngShuffle(rng, buildTacticalDeck(setName(0)));
+    rng = first.r;
+    const drawDeck = first.items;
+    const playedSets: TacticalCard[][] = Array.from({ length: CARD_SETS }, () => []);
     const hands: Record<Nation, TacticalCard[]> = {} as Record<Nation, TacticalCard[]>;
-    const discards: Record<Nation, TacticalCard[]> = {} as Record<Nation, TacticalCard[]>;
-    for (const nation of NATION_ORDER) {
-      const shuffled = rngShuffle(rng, buildTacticalDeck(nation));
-      rng = shuffled.r;
-      decks[nation] = shuffled.items;
-      hands[nation] = [];
-      discards[nation] = [];
-    }
+    for (const nation of NATION_ORDER) hands[nation] = [];
     const fate = buildFateDeck(rng);
     rng = fate.rng;
     // all 24 generals on their set-up cities; troops are allotted by the players
@@ -366,8 +426,9 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       offMap: {},
       offMapTrains: { prussia: 0, hanover: 0, russia: 0, sweden: 0, austria: 0, imperial: 0, france: 0 },
       hands,
-      decks,
-      discards,
+      drawDeck,
+      playedSets,
+      setsUsed: 1,
       drawAllot: { ...BASE_DRAW },
       stageMoves: {},
       combat: null,
@@ -580,7 +641,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
 
         const spent = new Set(cardIds);
         const hands = { ...state.hands, [nation]: state.hands[nation].filter((c) => !spent.has(c.id)) };
-        const discards = { ...state.discards, [nation]: [...state.discards[nation], ...paying.map((c) => c!)] };
+        const playedSets = setAside(state.playedSets, paying.map((c) => c!));
         const where = action.node ? friedrichMap.nodes.get(action.node)?.name ?? action.node : '';
         const log = [`${nation} recruits ${troops} troop(s)${wantTrains ? ` and ${wantTrains} supply train(s)` : ''} for ${cost} points (paid ${paid}).`];
 
@@ -617,7 +678,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           offMap,
           offMapTrains,
           hands,
-          discards,
+          playedSets,
           // a re-entering general may not move in the phase it returns
           stageMoves: general && action.node ? { ...state.stageMoves, [general.id]: action.node } : state.stageMoves,
           log: [...state.log, ...log],
@@ -737,13 +798,11 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
   redact(state: FriedrichState, viewer: PlayerId): FriedrichState {
     const controlled = nationsControlledBy(state, viewer);
 
-    // hide hands of nations the viewer doesn't control; hide every draw deck's
-    // order (a player must not see their own future draws)
+    // hide the hands of nations the viewer doesn't control, and the draw deck's
+    // order (nobody may see the coming draws) — only its size is public
     const hands = { ...state.hands };
-    const decks = { ...state.decks };
     for (const nation of NATION_ORDER) {
       if (!controlled.has(nation)) hands[nation] = [];
-      decks[nation] = [];
     }
 
     // hide secret troop counts on pieces the viewer doesn't own (-1 = hidden)
@@ -768,7 +827,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       };
     }
 
-    return { ...state, hands, decks, pieces, combat };
+    return { ...state, hands, drawDeck: [], deckCount: state.drawDeck.length, pieces, combat };
   },
 };
 

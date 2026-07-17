@@ -29,6 +29,7 @@ import {
   areEnemies,
   MAX_STACK,
   suggestAllotment,
+  CARD_SETS,
   ALL_GENERALS,
   TROOP_MAX,
   TROOP_PER_GENERAL_MAX,
@@ -547,7 +548,10 @@ function statusPanel(): string {
   const outCount = (['russia', 'sweden', 'france'] as Nation[]).filter((n) => state.eliminated.includes(n)).length;
   const prussia = `<div class="stat-row"><span class="nm"><span class="sw" style="background:${NATION_COLOR.prussia}"></span>Prussia <span style="opacity:.6">survival</span></span><span>${outCount}/3</span></div>
     <div class="bar"><i style="width:${(outCount / 3) * 100}%;background:${NATION_COLOR.prussia}"></i></div>`;
-  return `<h4>Victory progress</h4><div class="rows">${rows}${prussia}</div>`;
+  // the draw deck is shared by every nation, so its size is news for all of them
+  const left = state.deckCount ?? state.drawDeck.length;
+  const deck = `<div class="stat-row deck"><span class="nm">Tactical Cards <span style="opacity:.6">deck ${state.setsUsed} of ${CARD_SETS}</span></span><span>${left} left</span></div>`;
+  return `<h4>Victory progress</h4><div class="rows">${rows}${prussia}${deck}</div>`;
 }
 
 /** Recruitment dialog (§10): Tactical Cards spent as money at a depot. */
@@ -686,6 +690,9 @@ const HELP_HTML = `<div id="help-box">
       alone against everyone. Each <b>attacker</b> wins the moment it holds <b>all its objective cities</b>
       (the coloured banners on the map). <b>Prussia wins by surviving</b> — from turn 6 the Clock of Fate
       draws a card each turn, and once Russia, Sweden and France have all quit the war, Frederick has won.</p></section>
+    <section><h5>The cards</h5><p>Every nation draws from <b>one shared deck</b> of 50 — so a card you take is
+      one your enemy cannot. When it runs out the next of the box's four decks is opened; after all four,
+      the two biggest piles of played cards are shuffled back. Cards are the game's real currency.</p></section>
     <section><h5>Your turn</h5><p>Nations act in a fixed order each turn. On your stage you draw cards,
       then move each general <b>once</b> (3 cities, 4 if entirely along a thick main road — you cannot move
       through another piece), then attack. Right-click or click empty ground to deselect; use <b>Undo Move</b>

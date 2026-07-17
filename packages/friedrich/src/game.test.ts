@@ -120,23 +120,59 @@ test('setup opens Prussia\'s stage with a draw; other nations draw on their own 
   assert.equal(s.pieces['daun']?.node, 'brunn');
   assert.equal(s.hands.prussia.length, 7, 'Prussia draws its 7-card allotment at setup');
   assert.equal(s.hands.austria.length, 0, 'Austria has not drawn yet');
-  assert.equal(s.decks.prussia.length, 43, '50-card deck minus the 7 drawn');
-  assert.equal(s.decks.austria.length, 50, 'Austria\'s deck is untouched');
+  assert.equal(s.drawDeck.length, 43, 'the shared 50-card deck, minus the 7 Prussia drew');
+  assert.equal(s.setsUsed, 1, 'only the first of the four decks is in play');
   assert.equal(s.activeNationIndex, 0, 'Prussia acts first');
 });
 
-test('a nation draws its allotment at the start of its stage', () => {
+test('every nation draws from the same deck', () => {
   let s = fresh();
   assert.equal(s.hands.hanover.length, 0);
   s = act(s, { type: 'endNationTurn', by: 'p0' }); // advance to Hanover's stage
   assert.equal(s.hands.hanover.length, 2, 'Hanover draws its 1+1 allotment');
-  assert.equal(s.decks.hanover.length, 48);
+  assert.equal(s.drawDeck.length, 41, "Hanover's draw comes out of the same deck Prussia drew from");
 });
 
-test('a nation\'s cards are conserved across hand + deck + discard', () => {
+test('when the draw deck runs out, the next of the four decks is opened', () => {
+  // drain the deck down to one card, then let Hanover draw its two
+  const base = fresh();
+  const s: FriedrichState = { ...base, drawDeck: base.drawDeck.slice(0, 1) };
+  const next = act(s, { type: 'endNationTurn', by: 'p0' }); // Hanover's stage → draws 2
+
+  assert.equal(next.hands.hanover.length, 2, 'Hanover still got its full allotment');
+  assert.equal(next.setsUsed, 2, 'the second deck was opened');
+  assert.equal(next.drawDeck.length, 49, 'a fresh 50-card deck, minus the one card still owed');
+  assert.ok(next.log.some((l) => /deck 2 is opened/i.test(l)), 'the players are told');
+});
+
+test('once all four decks are used up, the two fullest piles are shuffled back', () => {
+  const base = fresh();
+  // all four decks opened and exhausted; piles hold what has been played
+  const pile = (n: number, origin: string) =>
+    Array.from({ length: n }, (_, i) => ({ id: `${origin}-x${i}`, kind: 'suit' as const, suit: 'clubs' as const, value: 5, origin }));
+  const s: FriedrichState = {
+    ...base,
+    drawDeck: [],
+    setsUsed: 4,
+    playedSets: [pile(3, 'set1'), pile(20, 'set2'), pile(9, 'set3'), pile(30, 'set4')],
+  };
+  const next = act(s, { type: 'endNationTurn', by: 'p0' }); // Hanover draws 2
+
+  assert.equal(next.setsUsed, 4, 'there is no fifth deck');
+  // the two biggest piles (set4=30 and set2=20) are recycled: 50 cards, 2 drawn
+  assert.equal(next.drawDeck.length, 48);
+  assert.deepEqual(next.playedSets.map((p) => p.length), [3, 0, 9, 0], 'only the recycled piles are emptied');
+  assert.ok(
+    next.hands.hanover.every((c) => c.origin === 'set2' || c.origin === 'set4'),
+    'Hanover drew from the recycled cards',
+  );
+});
+
+test('the 50 cards in play are conserved across the deck, hands and played piles', () => {
   const s = fresh();
-  const total = (n: 'prussia') => s.hands[n].length + s.decks[n].length + s.discards[n].length;
-  assert.equal(total('prussia'), 50);
+  const inHands = NATION_ORDER.reduce((n, nat) => n + s.hands[nat].length, 0);
+  const setAside = s.playedSets.reduce((n, pile) => n + pile.length, 0);
+  assert.equal(s.drawDeck.length + inHands + setAside, 50);
 });
 
 test('an outnumbered attacker who concedes takes the gap as casualties and retreats', () => {
@@ -348,7 +384,7 @@ test('recruiting spends Tactical Cards as money — 6 points per troop, no chang
   s = act(s, { type: 'recruit', by: 'p0', reinforceId: 'friedrich', troops: 4, trains: 0, cardIds: ['pay-0', 'pay-1'] });
   assert.equal(s.pieces['friedrich']?.troops, before + 4, 'four troops joined Friedrich');
   assert.equal(s.hands.prussia.length, 0, 'both cards were spent');
-  assert.equal(s.discards.prussia.length, 2, 'spent cards go to the discard pile');
+  assert.equal(s.playedSets.flat().length, 2, 'spent cards are set aside');
 });
 
 test('recruiting is refused when the cards do not cover the cost', () => {

@@ -33,12 +33,15 @@ export interface SuitCard {
   readonly kind: 'suit';
   readonly suit: Suit;
   readonly value: number;
+  /** Which deck this card was printed with (the physical card back). */
+  readonly origin?: string;
 }
 
 /** A Reserve (wild): on play the owner declares any suit and any value 1..10. */
 export interface ReserveCard {
   readonly id: string;
   readonly kind: 'reserve';
+  readonly origin?: string;
 }
 
 export type TacticalCard = SuitCard | ReserveCard;
@@ -50,19 +53,20 @@ export interface ReservePlay {
 }
 
 /**
- * Each great power owns a 50-card deck: values 2..13 in all four suits (48
- * cards) plus 2 Reserves. `owner` distinguishes the four identical-composition
- * decks (they have different backs in the physical game).
+ * One 50-card Tactical Card deck: values 2..13 in all four suits (48 cards)
+ * plus 2 Reserves. The box holds four such decks of identical composition,
+ * distinguished only by their backs; `owner` is that back, and is stamped on
+ * each card as `origin` so played cards can be sorted back to their own deck.
  */
 export function buildTacticalDeck(owner: string): TacticalCard[] {
   const cards: TacticalCard[] = [];
   for (const suit of SUITS) {
     for (let value = MIN_CARD_VALUE; value <= MAX_CARD_VALUE; value++) {
-      cards.push({ id: `${owner}-${suit}-${value}`, kind: 'suit', suit, value });
+      cards.push({ id: `${owner}-${suit}-${value}`, kind: 'suit', suit, value, origin: owner });
     }
   }
-  cards.push({ id: `${owner}-reserve-1`, kind: 'reserve' });
-  cards.push({ id: `${owner}-reserve-2`, kind: 'reserve' });
+  cards.push({ id: `${owner}-reserve-1`, kind: 'reserve', origin: owner });
+  cards.push({ id: `${owner}-reserve-2`, kind: 'reserve', origin: owner });
   return cards;
 }
 

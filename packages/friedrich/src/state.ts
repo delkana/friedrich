@@ -45,10 +45,18 @@ export interface FriedrichState extends BaseState {
   readonly offMapTrains: Readonly<Record<Nation, number>>;
   /** Each nation's Tactical Card hand. */
   readonly hands: Readonly<Record<Nation, readonly TacticalCard[]>>;
-  /** Each nation's face-down draw pile (order is secret — hidden in redaction). */
-  readonly decks: Readonly<Record<Nation, readonly TacticalCard[]>>;
-  /** Each nation's discard pile (played cards, reshuffled when the deck empties). */
-  readonly discards: Readonly<Record<Nation, readonly TacticalCard[]>>;
+  /**
+   * The single face-down draw deck every nation draws from — the box's four
+   * 50-card decks are used one at a time (rule 3). Its order is secret, so
+   * redaction empties it and reports `deckCount` instead.
+   */
+  readonly drawDeck: readonly TacticalCard[];
+  /** Cards left in the draw deck. Only set on a redacted view, where it is hidden. */
+  readonly deckCount?: number;
+  /** Played cards, set aside sorted by their deck of origin (`playedSets[0]` = deck 1). */
+  readonly playedSets: readonly (readonly TacticalCard[])[];
+  /** How many of the four decks have served as the draw deck so far. */
+  readonly setsUsed: number;
   /** Cards each nation draws at the start of its stage (reduced by some Cards of Fate). */
   readonly drawAllot: Readonly<Record<Nation, number>>;
   /**
