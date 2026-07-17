@@ -116,7 +116,7 @@ test('the war begins only once every nation has allotted', () => {
 
 test('setup opens Prussia\'s stage with a draw; other nations draw on their own stage', () => {
   const s = fresh();
-  assert.equal(s.pieces['friedrich']?.node, 'dresden');
+  assert.equal(s.pieces['friedrich']?.node, 'oschatz');
   assert.equal(s.pieces['daun']?.node, 'brunn');
   assert.equal(s.hands.prussia.length, 7, 'Prussia draws its 7-card allotment at setup');
   assert.equal(s.hands.austria.length, 0, 'Austria has not drawn yet');
@@ -176,8 +176,8 @@ test('the 50 cards in play are conserved across the deck, hands and played piles
 });
 
 test('an outnumbered attacker who concedes takes the gap as casualties and retreats', () => {
-  // Browne (6 troops) parked at Pirna, adjacent to Friedrich (4) alone at Dresden.
-  let s = armed(placed(fresh(), { browne: 'pirna', winterfeldt: 'grossenhain' }), { friedrich: 4, browne: 6 });
+  // Browne (6 troops) parked at Riesa, adjacent to Friedrich (4) alone at Oschatz.
+  let s = armed(placed(fresh(), { browne: 'riesa', winterfeldt: 'wurzen' }), { friedrich: 4, browne: 6 });
   s = act(s, { type: 'attack', by: 'p0', attackerId: 'friedrich', defenderId: 'browne' });
   assert.ok(s.combat, 'a battle started');
   assert.equal(s.combat!.duel.toMove, 'attacker', 'friedrich is behind at -2');
@@ -185,14 +185,14 @@ test('an outnumbered attacker who concedes takes the gap as casualties and retre
   s = act(s, { type: 'combatPass', by: 'p0' }); // friedrich accepts defeat
   assert.equal(s.combat, null, 'battle resolved');
   assert.equal(s.pieces['friedrich']?.troops, 2, 'lost the 2-troop gap');
-  assert.notEqual(s.pieces['friedrich']?.node, 'dresden', 'retreated off Dresden');
+  assert.notEqual(s.pieces['friedrich']?.node, 'oschatz', 'retreated off Oschatz');
   assert.equal(s.pieces['browne']?.troops, 6, 'winner loses nothing');
-  assert.equal(s.pieces['browne']?.node, 'pirna', 'winner holds its ground');
+  assert.equal(s.pieces['browne']?.node, 'riesa', 'winner holds its ground');
 });
 
 test('stacking to outnumber the enemy makes the defender lose and retreat', () => {
-  // Winterfeldt stands with Friedrich at Dresden (4+5=9) against Browne at Pirna (6).
-  let s = armed(placed(fresh(), { browne: 'pirna' }), { friedrich: 4, winterfeldt: 5, browne: 6 });
+  // Winterfeldt stands with Friedrich at Oschatz (4+5=9) against Browne at Riesa (6).
+  let s = armed(placed(fresh(), { browne: 'riesa' }), { friedrich: 4, winterfeldt: 5, browne: 6 });
   s = act(s, { type: 'attack', by: 'p0', attackerId: 'friedrich', defenderId: 'browne' });
   assert.equal(s.combat!.duel.attacker.troops, 9, 'stack pools its troops');
   assert.equal(s.combat!.duel.toMove, 'defender', 'browne is behind at -3');
@@ -200,45 +200,45 @@ test('stacking to outnumber the enemy makes the defender lose and retreat', () =
   s = act(s, { type: 'combatPass', by: 'p0' }); // browne concedes 3
   assert.equal(s.combat, null);
   assert.equal(s.pieces['browne']?.troops, 3, 'lost exactly the 3-troop gap');
-  assert.notEqual(s.pieces['browne']?.node, 'pirna', 'defender retreated');
-  assert.equal(s.pieces['friedrich']?.node, 'dresden', 'attacker holds its ground');
+  assert.notEqual(s.pieces['browne']?.node, 'riesa', 'defender retreated');
+  assert.equal(s.pieces['friedrich']?.node, 'oschatz', 'attacker holds its ground');
   assert.equal(s.pieces['winterfeldt']?.troops, 5, 'winner loses nothing');
 });
 
 test('movement is rejected onto an enemy city, out of range, or out of turn', () => {
-  const s = placed(fresh(), { browne: 'pirna' });
-  // Friedrich cannot MOVE onto Pirna — Browne holds it; must attack instead.
-  assert.throws(() => act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'pirna' }), IllegalActionError);
-  // Dresden to Brünn is far out of range.
+  const s = placed(fresh(), { browne: 'riesa' });
+  // Friedrich cannot MOVE onto Riesa — Browne holds it; must attack instead.
+  assert.throws(() => act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'riesa' }), IllegalActionError);
+  // Oschatz to Brünn is far out of range.
   assert.throws(() => act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'brunn' }), IllegalActionError);
   // Austria cannot move on Prussia's stage.
   assert.throws(() => act(s, { type: 'move', by: 'p1', pieceId: 'daun', to: 'olmutz' }), IllegalActionError);
 });
 
-test('legal movement works on real roads: Dresden -> Meissen', () => {
+test('legal movement works on real roads: Oschatz -> Torgau', () => {
   let s = fresh();
-  s = act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'meissen' });
-  assert.equal(s.pieces['friedrich']?.node, 'meissen');
+  s = act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'torgau' });
+  assert.equal(s.pieces['friedrich']?.node, 'torgau');
 });
 
 test('a general may move only once per stage, but the move can be undone', () => {
   let s = fresh();
-  s = act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'meissen' });
-  assert.equal(s.stageMoves['friedrich'], 'dresden', 'origin recorded for ghost/undo');
+  s = act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'torgau' });
+  assert.equal(s.stageMoves['friedrich'], 'oschatz', 'origin recorded for ghost/undo');
   // second move of the same general is rejected
-  assert.throws(() => act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'grossenhain' }), IllegalActionError);
+  assert.throws(() => act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'riesa' }), IllegalActionError);
   // undo returns it home and frees it to move again
   s = act(s, { type: 'undoMove', by: 'p0', pieceId: 'friedrich' });
-  assert.equal(s.pieces['friedrich']?.node, 'dresden');
+  assert.equal(s.pieces['friedrich']?.node, 'oschatz');
   assert.equal(s.stageMoves['friedrich'], undefined);
-  s = act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'meissen' });
-  assert.equal(s.pieces['friedrich']?.node, 'meissen');
+  s = act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'torgau' });
+  assert.equal(s.pieces['friedrich']?.node, 'torgau');
 });
 
 test('committing to a battle finalizes moves (no more undo)', () => {
-  let s = placed(fresh(), { browne: 'pirna' });
+  let s = placed(fresh(), { browne: 'riesa' });
   s = act(s, { type: 'move', by: 'p0', pieceId: 'seydlitz', to: 'potsdam' });
-  assert.equal(s.stageMoves['seydlitz'], 'berlin');
+  assert.equal(s.stageMoves['seydlitz'], 'brandenburg');
   s = act(s, { type: 'attack', by: 'p0', attackerId: 'friedrich', defenderId: 'browne' });
   assert.deepEqual(s.stageMoves, {}, 'stage moves cleared on attack');
   assert.throws(() => act(s, { type: 'undoMove', by: 'p0', pieceId: 'seydlitz' }), IllegalActionError);
@@ -246,7 +246,7 @@ test('committing to a battle finalizes moves (no more undo)', () => {
 
 test('ending a stage clears the move budget for the next nation', () => {
   let s = fresh();
-  s = act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'meissen' });
+  s = act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'torgau' });
   s = act(s, { type: 'endNationTurn', by: 'p0' });
   assert.deepEqual(s.stageMoves, {});
 });
@@ -296,12 +296,11 @@ test('France only withdraws after both the India and America cards are drawn', (
 });
 
 test('an attacker seizes its objective by occupying it', () => {
-  // march Daun into Breslau (an Austrian objective) — first send its Prussian
-  // garrison elsewhere, so this tests conquest rather than combat
+  // march Daun into Breslau (an Austrian objective), which starts empty
   const nbr = [...friedrichMap.adjacency.get('breslau')!].find(
     (n) => !Object.values(fresh().pieces).some((p) => p.node === n),
   )!;
-  let s = placed(fresh(), { daun: nbr, schwerin: 'stettin', keith: 'konigsberg' });
+  let s = placed(fresh(), { daun: nbr });
   // NATION_ORDER: prussia,hanover,russia,sweden,austria,… → 4 stage-ends reach Austria
   for (let i = 0; i < 4; i++) s = act(s, { type: 'endNationTurn', by: 'p0' });
   s = act(s, { type: 'move', by: 'p1', pieceId: 'daun', to: 'breslau' });
@@ -408,14 +407,20 @@ test('a lost general returns at a depot and must receive a troop', () => {
   );
   // a returning general with no troops is illegal
   assert.throws(
-    () => act(s, { type: 'recruit', by: 'p0', node: 'juterbog', generalId: 'keith', troops: 0, trains: 0, cardIds: ['pay-0'] }),
+    () => act(s, { type: 'recruit', by: 'p0', node: 'grunberg', generalId: 'keith', troops: 0, trains: 0, cardIds: ['pay-0'] }),
     IllegalActionError,
   );
-  s = act(s, { type: 'recruit', by: 'p0', node: 'juterbog', generalId: 'keith', troops: 2, trains: 0, cardIds: ['pay-0'] });
-  assert.equal(s.pieces['keith']?.node, 'juterbog', 'Keith is back in the field');
+  // Jüterbog is where a Prussian train starts, but it carries no depot star —
+  // pieces re-enter only at depot cities
+  assert.throws(
+    () => act(s, { type: 'recruit', by: 'p0', node: 'juterbog', generalId: 'keith', troops: 2, trains: 0, cardIds: ['pay-0'] }),
+    IllegalActionError,
+  );
+  s = act(s, { type: 'recruit', by: 'p0', node: 'grunberg', generalId: 'keith', troops: 2, trains: 0, cardIds: ['pay-0'] });
+  assert.equal(s.pieces['keith']?.node, 'grunberg', 'Keith is back in the field');
   assert.equal(s.pieces['keith']?.troops, 2);
   assert.equal(s.offMap['keith'], undefined, 'no longer off-map');
-  assert.equal(s.stageMoves['keith'], 'juterbog', 'may not move the phase it re-enters');
+  assert.equal(s.stageMoves['keith'], 'grunberg', 'may not move the phase it re-enters');
 });
 
 test('a nation may not exceed its troop establishment', () => {

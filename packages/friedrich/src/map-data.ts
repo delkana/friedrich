@@ -1812,6 +1812,7 @@ export const EDGES: readonly MapEdge[] = [
   { a: 'ostrow-607', b: 'puttusk' },
   { a: 'ostrow-607', b: 'wyszkow' },
   { a: 'gifhorn-675', b: 'lehrte' },
+  { a: 'oschatz', b: 'torgau' },
 ];
 
 /** The 33 sector suit stamps (rendered faded like the printed board). Each is

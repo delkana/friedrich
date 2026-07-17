@@ -34,11 +34,9 @@ export function areEnemies(a: Nation, b: Nation): boolean {
  * secretly allots their nation's establishment across its generals (rule "How to
  * start"), so `troops` is filled in during the setup phase.
  *
- * The sheet gives each general's set-up city as a map grid reference (Friedrich
- * F4, Lehwaldt M9, …). Those margin coordinates aren't in our extracted map
- * data, so the cities below are the historically sensible ones in the right
- * sector (Lehwaldt in East Prussia, Dohna in Pomerania, Schwerin/Keith in
- * Silesia, Frederick invading Saxony). Every one is verified to start in supply.
+ * Set-up cities are EXACT, not inferred: they come from the VASSAL module's
+ * ready-to-play save ("PLAY FRIEDRICH.vsav"), whose piece coordinates land
+ * precisely (0px) on the board's city points. See scripts/extract-setup.mjs.
  */
 export interface GeneralSpec {
   readonly id: string;
@@ -50,22 +48,22 @@ export interface GeneralSpec {
 
 export const ALL_GENERALS: readonly GeneralSpec[] = [
   // Prussia (8) — establishment 32
-  { id: 'friedrich', name: 'Friedrich d. Große', nation: 'prussia', rank: 1, node: 'dresden' },
-  { id: 'winterfeldt', name: 'Winterfeldt', nation: 'prussia', rank: 2, node: 'dresden' },
-  { id: 'heinrich', name: 'Prinz Heinrich', nation: 'prussia', rank: 3, node: 'leipzig' },
-  { id: 'schwerin', name: 'Schwerin', nation: 'prussia', rank: 4, node: 'breslau' },
-  { id: 'keith', name: 'Keith', nation: 'prussia', rank: 5, node: 'breslau' },
-  { id: 'seydlitz', name: 'Seydlitz', nation: 'prussia', rank: 6, node: 'berlin' },
-  { id: 'dohna', name: 'Dohna', nation: 'prussia', rank: 7, node: 'stettin' },
-  { id: 'lehwaldt', name: 'Lehwaldt', nation: 'prussia', rank: 8, node: 'konigsberg' },
+  { id: 'friedrich', name: 'Friedrich d. Große', nation: 'prussia', rank: 1, node: 'oschatz' },
+  { id: 'winterfeldt', name: 'Winterfeldt', nation: 'prussia', rank: 2, node: 'oschatz' },
+  { id: 'heinrich', name: 'Prinz Heinrich', nation: 'prussia', rank: 3, node: 'berlin' },
+  { id: 'schwerin', name: 'Schwerin', nation: 'prussia', rank: 4, node: 'strehlen' },
+  { id: 'keith', name: 'Keith', nation: 'prussia', rank: 5, node: 'strehlen' },
+  { id: 'seydlitz', name: 'Seydlitz', nation: 'prussia', rank: 6, node: 'brandenburg' },
+  { id: 'dohna', name: 'Dohna', nation: 'prussia', rank: 7, node: 'arnswald' },
+  { id: 'lehwaldt', name: 'Lehwaldt', nation: 'prussia', rank: 8, node: 'mohrungen' },
   // Hanover (2) — establishment 12
   { id: 'ferdinand', name: 'Ferdinand v. Braunschweig', nation: 'hanover', rank: 1, node: 'stade' },
-  { id: 'cumberland', name: 'Cumberland', nation: 'hanover', rank: 2, node: 'hannover' },
+  { id: 'cumberland', name: 'Cumberland', nation: 'hanover', rank: 2, node: 'alfeld' },
   // Russia (4) — establishment 16
-  { id: 'saltikov', name: 'Saltikov', nation: 'russia', rank: 1, node: 'warszawa' },
-  { id: 'fermor', name: 'Fermor', nation: 'russia', rank: 2, node: 'warszawa' },
-  { id: 'apraxin', name: 'Apraxin', nation: 'russia', rank: 3, node: 'torun' },
-  { id: 'tottleben', name: 'Tottleben', nation: 'russia', rank: 4, node: 'torun' },
+  { id: 'saltikov', name: 'Saltikov', nation: 'russia', rank: 1, node: 'bydgoszcz' },
+  { id: 'fermor', name: 'Fermor', nation: 'russia', rank: 2, node: 'bydgoszcz' },
+  { id: 'apraxin', name: 'Apraxin', nation: 'russia', rank: 3, node: 'lomza' },
+  { id: 'tottleben', name: 'Tottleben', nation: 'russia', rank: 4, node: 'sierpc' },
   // Sweden (1) — establishment 4
   { id: 'ehrensvard', name: 'Ehrensvärd', nation: 'sweden', rank: 1, node: 'stralsund' },
   // Austria (5) — establishment 30
@@ -75,7 +73,7 @@ export const ALL_GENERALS: readonly GeneralSpec[] = [
   { id: 'laudon', name: 'Laudon', nation: 'austria', rank: 4, node: 'olmutz' },
   { id: 'lacy', name: 'Lacy', nation: 'austria', rank: 5, node: 'tabor' },
   // Imperial Army (1) — establishment 6
-  { id: 'hildburghausen', name: 'Hildburghausen', nation: 'imperial', rank: 1, node: 'erlangen' },
+  { id: 'hildburghausen', name: 'Hildburghausen', nation: 'imperial', rank: 1, node: 'hildburghausen' },
   // France (3) — establishment 20
   { id: 'richelieu', name: 'Richelieu', nation: 'france', rank: 1, node: 'iserlohn' },
   { id: 'soubise', name: 'Soubise', nation: 'france', rank: 2, node: 'fulda' },
@@ -101,11 +99,11 @@ export interface Train {
   readonly node: NodeId;
 }
 
-/** Supply trains at their historical start cities (per the army sheet). */
+/** Supply trains on their printed "T" cities (exact, from the VASSAL set-up save). */
 export const INITIAL_TRAINS: readonly Train[] = [
   { id: 'sup-prussia-1', nation: 'prussia', node: 'juterbog' },
   { id: 'sup-prussia-2', nation: 'prussia', node: 'grunberg' },
-  { id: 'sup-hanover-1', nation: 'hanover', node: 'hannover' },
+  { id: 'sup-hanover-1', nation: 'hanover', node: 'gifhorn-675' },
   { id: 'sup-russia-1', nation: 'russia', node: 'torun' },
   { id: 'sup-russia-2', nation: 'russia', node: 'warszawa' },
   { id: 'sup-sweden-1', nation: 'sweden', node: 'wismar' },
@@ -129,14 +127,25 @@ export const TROOP_MAX: Record<Nation, number> = {
   prussia: 32, hanover: 12, russia: 16, sweden: 4, austria: 30, imperial: 6, france: 20,
 };
 
-/** Depot cities where a nation's pieces may re-enter play (per the army sheet). */
+/**
+ * Depot cities: where eliminated pieces re-enter play (rule 1: "Depot cities are
+ * set-up cities as well. In addition, they are where eliminated pieces can
+ * re-enter the game.").
+ *
+ * These are the cities carrying the board's depot marker — NOT the "T" cities
+ * where supply trains start, which is a separate marker. The rulebook's own
+ * recruitment example confirms the distinction: Russia re-enters generals at
+ * Sierpc and puts a train on Warszawa, while its trains START at Torun and
+ * Warszawa. The 14 depot-marked cities partition exactly across the seven
+ * nations, which is the cross-check that these are complete.
+ */
 export const DEPOT_CITIES: Record<Nation, readonly NodeId[]> = {
-  prussia: ['juterbog', 'grunberg'],
-  hanover: ['hannover'],
-  russia: ['torun', 'warszawa'],
-  sweden: ['wismar'],
-  austria: ['beraun', 'pardubitz'],
-  imperial: ['erlangen'],
+  prussia: ['berlin', 'arnswald', 'grunberg', 'strehlen', 'mohrungen'],
+  hanover: ['stade'],
+  russia: ['sierpc', 'warszawa'],
+  sweden: ['stralsund'],
+  austria: ['brunn', 'tabor'],
+  imperial: ['hildburghausen'],
   france: ['koblenz', 'gemunden'],
 };
 

@@ -75,16 +75,16 @@ assert(
 );
 
 // authorization: it is Prussia's stage (index 0)
-theresa.send({ t: 'action', action: { type: 'move', pieceId: 'friedrich', to: 'meissen' } });
+theresa.send({ t: 'action', action: { type: 'move', pieceId: 'friedrich', to: 'torgau' } });
 await wait(120);
 assert(theresa.st.errors.some((e) => /not your turn/i.test(e)), "Austria is refused acting on Prussia's turn");
-assert(fred.st.view.pieces['friedrich'].node === 'dresden', 'board unchanged by the refused action');
+assert(fred.st.view.pieces['friedrich'].node === 'oschatz', 'board unchanged by the refused action');
 
 const before = fred.st.view.version;
-fred.send({ t: 'action', action: { type: 'move', pieceId: 'friedrich', to: 'meissen' } });
+fred.send({ t: 'action', action: { type: 'move', pieceId: 'friedrich', to: 'torgau' } });
 await wait(120);
-assert(fred.st.view.pieces['friedrich'].node === 'meissen', 'Prussia moved Friedrich');
-assert(other.st.view.pieces['friedrich'].node === 'meissen', 'the third player received the synced board update');
+assert(fred.st.view.pieces['friedrich'].node === 'torgau', 'Prussia moved Friedrich');
+assert(other.st.view.pieces['friedrich'].node === 'torgau', 'the third player received the synced board update');
 assert(fred.st.view.version === before + 1, 'version advanced');
 
 for (const c of clients) c.ws.close();

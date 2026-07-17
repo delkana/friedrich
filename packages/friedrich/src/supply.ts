@@ -9,7 +9,7 @@
  */
 
 import { friedrichMap } from './map-data.js';
-import { sideOf, SUPPLY_RANGE, type Piece, type Train } from './pieces.js';
+import { sideOf, SUPPLY_RANGE, DEPOT_CITIES, type Piece, type Train } from './pieces.js';
 import type { Nation } from './powers.js';
 import type { FriedrichState } from './state.js';
 
@@ -27,6 +27,9 @@ function hostileNodes(state: FriedrichState, side: 'attacker' | 'defender'): Set
 export function inSupply(state: FriedrichState, general: Piece): boolean {
   const here = friedrichMap.nodes.get(general.node);
   if (here?.home === general.nation) return true; // home country is always in supply
+  // "Russia and France have no home country, but their generals are in supply if
+  // occupying their depot cities." (rule 9)
+  if (DEPOT_CITIES[general.nation].includes(general.node)) return true;
 
   const myTrains = new Set(
     Object.values(state.trains).filter((t: Train) => t.nation === general.nation).map((t) => t.node),

@@ -100,10 +100,33 @@ confidence; ranks, counts and establishments below are authoritative.
   whole establishment** across that nation's generals within the per-general
   limits above. The establishment is also a hard ceiling on recruitment.
   Transfer freely within a stack, never between unstacked generals.
-- The sheet gives each general's start city as a **map grid reference** (Friedrich
-  F4, Lehwaldt M9, …). Those margin coordinates are not in our extracted map data,
-  so `pieces.ts` uses the historically sensible city in the right sector; every one
-  is test-verified to start in supply. Mapping the grid is the way to make these exact.
+
+### Set-up cities (EXACT)
+Recovered from the VASSAL module's ready-to-play save via
+`node scripts/extract-setup.mjs` — its piece coordinates land on the board's city
+points to the pixel, so these are the printed set-up cities, not inferences.
+
+| Nation | Generals | Trains ("T" cities) |
+|---|---|---|
+| Prussia | Friedrich + Winterfeldt **Oschatz**, Heinrich **Berlin**, Schwerin + Keith **Strehlen**, Seydlitz **Brandenburg**, Dohna **Arnswald**, Lehwaldt **Mohrungen** | Jüterbog, Grünberg |
+| Hanover | Ferdinand **Stade**, Cumberland **Alfeld** | Gifhorn |
+| Russia | Saltikov + Fermor **Bydgoszcz**, Apraxin **Łomża**, Tottleben **Sierpc** | Toruń, Warszawa |
+| Sweden | Ehrensvärd **Stralsund** | Wismar |
+| Austria | Daun **Brünn**, Browne + Lothringen **Melnik**, Laudon **Olmütz**, Lacy **Tabor** | Beraun, Pardubitz |
+| Imperial | Hildburghausen **Hildburghausen** | Erlangen |
+| France | Richelieu + Chevert **Iserlohn**, Soubise **Fulda** | Koblenz, Gemünden |
+
+### Reading the board's markers
+Confirmed by inspecting the 6000px board at high zoom:
+- **Star ornament, in a nation's colour** = that nation's **depot city** (Berlin's
+  star is Prussian blue, Sierpc's is Russian green). This is what makes the
+  rulebook's recruitment example legal — Russia re-enters generals at Sierpc.
+- **Plain magenta dot** = an ordinary **set-up city** (Oschatz, Jüterbog).
+- The blue/coloured **number** next to a city is which general(s) start there
+  ("1&2" at Oschatz = Friedrich and Winterfeldt); a **"T"** marks a train's start.
+
+So depot cities and "T" cities are different things that sometimes coincide
+(Grünberg, Koblenz, Gemünden, Warszawa are both).
 - **Supply train**: a cube, cannot fight or hold objectives (exception: the
   Imperial supply train protects objectives like a general, radius 3). One train
   supplies unlimited same-color generals. Captured when an enemy general enters
@@ -257,7 +280,6 @@ game, but each is a real difference a rules lawyer would catch.
   choice of path.
 - **No substitute recruitment site.** If every depot is blocked, the rules allow
   recruiting elsewhere at a premium (8 points); we simply refuse.
-- **Set-up cities are inferred, not exact** — see Generals & armies above.
 
 ## Confidence
 - **High:** player counts/groupings, no-TV combat, card face, suit/sector rule,
