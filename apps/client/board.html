@@ -217,6 +217,12 @@
       #recruit-box .sub, #help-box .sub, #setup-box .sub { color: var(--muted); font-size: 12px; }
       #setup-box .sub { line-height: 1.55; }
       .setup-tabs { display: flex; gap: 8px; justify-content: center; margin: 12px 0 6px; flex-wrap: wrap; }
+      /* steppers line up in their own columns, whatever the general's name length */
+      .setup-row { display: grid; grid-template-columns: 1fr auto 32px auto; align-items: center; gap: 10px;
+        padding: 7px 0; border-bottom: 1px dashed #ffffff10; font-size: 14px; }
+      .setup-row .nm { min-width: 0; }
+      .setup-row small { color: var(--muted); }
+      .setup-row .gb { padding: 3px 10px; }
       .rec-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0;
         border-bottom: 1px dashed #ffffff10; font-size: 14px; }
       .rec-row small { color: var(--muted); }

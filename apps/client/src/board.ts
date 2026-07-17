@@ -656,8 +656,8 @@ function setupBox(): string {
   const rows = generals
     .map((g) => {
       const n = draft[g.id] ?? 0;
-      return `<div class="rec-row">
-        <span>${GENERAL_NAME[g.id] ?? g.id} <small>· rank ${g.rank} · ${friedrichMap.nodes.get(g.node)?.name ?? g.node}</small></span>
+      return `<div class="setup-row">
+        <span class="nm">${GENERAL_NAME[g.id] ?? g.id} <small>· rank ${g.rank} · ${friedrichMap.nodes.get(g.node)?.name ?? g.node}</small></span>
         <button class="gb" data-setup="minus:${g.id}" ${n <= TROOP_PER_GENERAL_MIN ? 'disabled' : ''}>−</button>
         <b class="rec-n">${n}</b>
         <button class="gb" data-setup="plus:${g.id}" ${n >= max || left <= 0 ? 'disabled' : ''}>+</button>
