@@ -915,8 +915,10 @@ function onSetupClick(cmd: string): void {
   if (verb === 'minus') return bumpAllot(nation, arg!, -1);
   if (verb === 'even') { allotDraft[nation] = suggestAllotment(state, nation); renderChrome(); return; }
   if (verb === 'go') {
+    // clear the selection FIRST: dispatch re-renders, and setupBox picks the next
+    // unraised nation for us — nulling it afterwards would undo that choice
+    allotNation = null;
     dispatch({ type: 'allotTroops', nation, alloc: draftFor(nation) });
-    allotNation = null; // fall through to your next unraised nation
   }
 }
 
