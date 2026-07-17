@@ -4,6 +4,7 @@ import {
   rngShuffle,
   buildTacticalDeck,
   reachableNodes,
+  pathsBetween,
   areAdjacent,
   hopDistance,
   startDuel,
@@ -165,16 +166,106 @@ export function defendingNation(node: string): Nation | null {
 }
 
 /**
+ * Who is shielding an objective right now — the defending nation normally, but
+ * once a city has been conquered the roles reverse: "only the original
+ * protecting nation may reconquer … only the French generals are able to protect
+ * them" (rule 5, Reconquest). So whoever holds it is whoever defends it.
+ */
+const protectorOf = (state: FriedrichState, node: string): Nation | null =>
+  state.conquered[node] ?? defendingNation(node);
+
+/**
  * "It is protected if a general of the defending nation is positioned 1, 2 or 3
- * cities away." Distance is plain road distance — a defender shields ground he
- * could march to, whether or not the way is presently clear.
+ * cities away … regardless of the position of other pieces" — so plain road
+ * distance, blocked or not. A supply train protects nothing; only generals do.
  */
 export function objectiveProtected(state: FriedrichState, node: string): boolean {
-  const by = defendingNation(node);
+  const by = protectorOf(state, node);
   if (!by) return false;
   return Object.values(state.pieces).some(
     (p) => p.nation === by && hopDistance(friedrichMap, p.node, node) <= PROTECT_RANGE,
   );
+}
+
+/** Could `nation` take this city by moving over it — leaving protection aside? */
+export function canTake(state: FriedrichState, node: string, nation: Nation): boolean {
+  const n = friedrichMap.nodes.get(node);
+  if (!n?.objectiveFor) return false;
+  const held = state.conquered[node];
+  // reconquest: only the nation that defends this ground may win it back
+  if (held) return nation === defendingNation(node);
+  // conquest: "generals may conquer objectives only of their own colour"
+  return nation === n.objectiveFor;
+}
+
+/**
+ * Apply rule 5 to every objective a general touched on his way — the city he
+ * left, the ones he passed through, and the one he stopped on.
+ *
+ * Unprotected ones fall now. Protected ones get a question mark instead and are
+ * looked at again after the fighting, because the protector may not survive it.
+ */
+function conquerAlong(
+  state: FriedrichState,
+  path: readonly string[],
+  nation: Nation,
+  log: string[],
+): { conquered: FriedrichState['conquered']; pendingConquest: FriedrichState['pendingConquest'] } {
+  let conquered = { ...state.conquered };
+  const pendingConquest = { ...state.pendingConquest };
+  for (const node of path) {
+    if (!canTake(state, node, nation)) continue;
+    if (objectiveProtected(state, node)) {
+      pendingConquest[node] = nation;
+      log.push(`${cityName(node)} holds — ${nationName(protectorOf(state, node)!)} still covers it (marked ?).`);
+      continue;
+    }
+    ({ conquered } = applyConquest(conquered, node, nation, log));
+  }
+  return { conquered, pendingConquest };
+}
+
+/** Plant or lift the coat of arms. */
+function applyConquest(
+  conquered: FriedrichState['conquered'],
+  node: string,
+  nation: Nation,
+  log: string[],
+): { conquered: FriedrichState['conquered'] } {
+  const next = { ...conquered };
+  if (next[node]) {
+    delete next[node]; // "after reconquest the coat of arms marker is taken from the map"
+    log.push(`${NationName(nation)} retakes ${cityName(node)}.`);
+  } else {
+    next[node] = nation;
+    log.push(`${NationName(nation)} seizes ${cityName(node)}!`);
+  }
+  return { conquered: next };
+}
+
+/**
+ * Phase 4 of a nation's stage: "Retroactive conquests are checked for."
+ *
+ * Every objective marked with a question mark is looked at again now that the
+ * fighting is done. If its protector has been driven off or killed, it falls
+ * after all — and "the general who did the moving over does not have to be the
+ * one who forces the protector to retreat".
+ */
+function retroactiveConquest(state: FriedrichState): FriedrichState {
+  const marks = Object.entries(state.pendingConquest) as [string, Nation][];
+  if (!marks.length) return state;
+  let conquered = state.conquered;
+  const log: string[] = [];
+  for (const [node, nation] of marks) {
+    if (!canTake({ ...state, conquered }, node, nation)) continue; // someone got there first
+    if (objectiveProtected({ ...state, conquered }, node)) {
+      log.push(`${cityName(node)} is still covered — the mark comes off.`);
+      continue;
+    }
+    log.push(`Retroactive conquest:`);
+    ({ conquered } = applyConquest(conquered, node, nation, log));
+  }
+  return { ...state, conquered, pendingConquest: {}, log: [...state.log, ...log] };
 }
 
 // ---- what the table knows about enemy strength ---------------------------
@@ -551,6 +642,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       stageMoves: {},
       combat: null,
       conquered: {},
+      pendingConquest: {},
       eliminated: [],
       fateDeck: fate.deck,
       fateDrawn: [],
@@ -697,27 +789,16 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           log.push(`${NationName(piece.nation)} captures a ${nationAdj(enemyTrain.nation)} supply train at ${dest.name}!`);
         }
 
-        // Conquest (rule 5): a general takes an objective of his own colour by
-        // moving onto it — but only if it is UNPROTECTED at that moment. A single
-        // general of the defending nation standing within three cities is enough
-        // to hold the whole thing, which is the shape of the defensive game.
-        let conquered = state.conquered;
-        if (dest.objectiveFor) {
-          if (piece.nation === dest.objectiveFor) {
-            // the mover is already standing here, so ask the board as it was before
-            if (objectiveProtected(state, action.to)) {
-              log.push(`${dest.name} holds — ${nationName(defendingNation(action.to)!)} still covers it.`);
-            } else {
-              conquered = { ...conquered, [action.to]: piece.nation };
-              log.push(`${NationName(piece.nation)} seizes ${dest.name}!`);
-            }
-          } else if (sideOf(piece.nation) === 'defender' && conquered[action.to]) {
-            const c = { ...conquered };
-            delete c[action.to];
-            conquered = c;
-            log.push(`Prussia retakes ${dest.name}.`);
-          }
-        }
+        // Conquest (rule 5) happens along the whole march, not just at the end:
+        // "a general moves over an objective; or he starts his movement phase on
+        // it and moves away". A destination three cities off is often reachable
+        // more than one way and the routes sweep different cities, so take the
+        // one that serves the mover best — which is what a player choosing his
+        // own road would do.
+        const routes = pathsBetween(friedrichMap, piece.node, action.to, occupiedNodes(state.pieces));
+        const score = (p: readonly string[]) => p.filter((n) => canTake(state, n, piece.nation)).length;
+        const path = routes.reduce((best, p) => (score(p) > score(best) ? p : best), routes[0] ?? [piece.node, action.to]);
+        const { conquered, pendingConquest } = conquerAlong(state, path, piece.nation, log);
 
         return withWinner({
           ...state,
@@ -726,6 +807,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           trains,
           offMapTrains,
           conquered,
+          pendingConquest,
           stageMoves: { ...state.stageMoves, [piece.id]: piece.node },
           log: [...state.log, ...log],
         });
@@ -958,6 +1040,12 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
 
       case 'endNationTurn': {
         if (state.combat) throw new IllegalActionError('Finish the current battle first.');
+
+        // A stage runs: cards, movement, combat, retroactive conquests, supply
+        // (rule 2). The fighting is over by the time a stage is ended, so this is
+        // the moment the question marks are answered — a protector who has just
+        // been driven off no longer holds his city.
+        state = retroactiveConquest(state);
 
         // the ending nation's supply phase: recover / cut off / annihilate
         const ending = activeNationOf(state);

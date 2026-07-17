@@ -325,23 +325,40 @@ VASSAL setup stacks. Start sectors in parens (army-sheet grid refs).
   simply be marched away, so they block re-entry without earning you a substitute.
 
 ## Conquest of objectives (rule 5)
-- A general conquers an objective **of his own colour** by moving onto it — but
-  **only if it is not protected at that moment**. "It is protected if a general
-  of the defending nation is positioned **1, 2 or 3 cities away**." One defender
-  holds the city against any force that merely walks in; you must draw him off or
-  kill him first. This is the backbone of Prussia's defensive game.
+- Conquest happens if **"a general moves over an objective; or he starts his
+  movement phase on it and moves away"** AND **"the objective is not protected at
+  that moment"**. So the whole march counts — the city left, the ones passed
+  through, the one stopped on — and "a general may conquer more than one
+  objective with a single move". Only objectives **of his own colour**; supply
+  trains conquer nothing.
+- **Protected** = "a general of the defending nation is positioned **1, 2 or 3
+  cities away** … regardless of the position of other pieces" → plain road
+  distance, blocking irrelevant. One defender holds a city against any force that
+  walks past. This is the backbone of Prussia's defensive game.
 - **The defending nation is one NATION, not a side.** "All nations are defending
   their home country, including all exclaves. Furthermore, **Prussia is defending
   occupied Sachsen (Saxony)**. NOTE: Hanover does not defend any objectives in
   Prussia! Prussia does not defend any objectives in Hanover!"
-- So `defendingNation(node) = node.occupiedBy ?? node.home`. **Saxony is why
-  `occupiedBy` exists**: it is the Imperial Army's home country AND holds all ten
-  of its objectives, so its home cannot be what defends it — Prussia occupies it
-  and does. This is also why the board shades Saxony apart from the rest of the
-  Reich (`OCCUPIED_SAXONY` in geography.ts, drawn inside the Imperial border).
-- **Still not modelled:** conquest also happens when a general "moves over" an
-  objective in passing, or "starts his movement phase on it and moves away". We
-  only conquer on ending the move there.
+  → `defendingNation(node) = node.occupiedBy ?? node.home`. **Saxony is why
+  `occupiedBy` exists**: Imperial home country AND all ten Imperial objectives, so
+  its home cannot defend it — Prussia occupies it and does. Hence the board shades
+  Saxony apart (`OCCUPIED_SAXONY` in geography.ts, inside the Imperial border).
+- **Retroactive conquest** (stage phase 4, after combat): marching over a
+  *protected* objective marks it with a **question mark** instead. If the
+  protector has since been driven off — "the general who did the moving over does
+  not have to be the one who forces the protector to retreat" — the city falls
+  after all; if he still stands, the mark is removed. `state.pendingConquest`.
+- **Reconquest**: "only the original protecting nation may reconquer, with the
+  roles for moving over and protecting now being reversed" — so Hanover alone wins
+  back Hanover, and the French generals holding it are what protect it.
+  `protectorOf(node) = conquered[node] ?? defendingNation(node)`.
+- **Sequence of play (rule 2)**, per nation: 1 Tactical Cards → 2 Movement
+  (+conquest, recruit, re-entry) → 3 Combat → 4 **Retroactive conquests** →
+  5 Supply. `endNationTurn` runs 4 then 5.
+- **Path choice:** the rules let a player pick his own road, and different roads
+  sweep different objectives; our UI only asks for a destination. `pathsBetween`
+  lists every legal route and the engine takes the one conquering the most, which
+  is what a player choosing for himself would do.
 
 ## Home countries (rule 1) — and the map's geography
 - "All **dark-blue** areas (including all exclaves) are the home country of

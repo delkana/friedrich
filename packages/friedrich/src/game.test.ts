@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { IllegalActionError, randomSeed } from '@friedrich/engine';
-import { Friedrich, suggestAllotment, depotsBlocked, reentrySites, HIDDEN_TROOPS, objectiveProtected, defendingNation } from './game.js';
+import { Friedrich, suggestAllotment, depotsBlocked, reentrySites, HIDDEN_TROOPS, objectiveProtected, defendingNation, canTake } from './game.js';
 import { NATION_ORDER } from './powers.js';
 import { TROOP_MAX, TROOP_PER_GENERAL_MAX, DEPOT_CITIES, substituteSites } from './pieces.js';
 import { friedrichMap } from './map-data.js';
@@ -525,6 +525,75 @@ test('an unprotected objective falls', () => {
 
   s = act(toAustria(s), { type: 'move', by: 'p1', pieceId: 'daun', to: 'breslau' });
   assert.equal(s.conquered['breslau'], 'austria', 'Breslau is now held by Austria');
+});
+
+test('a general conquers what he marches over, not only where he stops', () => {
+  // Schweidnitz and Waldenburg are neighbouring Austrian objectives; march Daun
+  // through the first to the second, with Silesia's garrison out of the way
+  assert.equal(friedrichMap.nodes.get('schweidnitz')?.objectiveFor, 'austria');
+  assert.equal(friedrichMap.nodes.get('waldenburg')?.objectiveFor, 'austria');
+  assert.ok(friedrichMap.adjacency.get('schweidnitz')!.has('waldenburg'));
+
+  let s = placed(fresh(), { daun: 'striegau', schwerin: 'konigsberg', keith: 'konigsberg' });
+  s = act(toAustria(s), { type: 'move', by: 'p1', pieceId: 'daun', to: 'waldenburg' });
+
+  assert.equal(s.pieces['daun']?.node, 'waldenburg');
+  assert.equal(s.conquered['waldenburg'], 'austria', 'the city he stopped on');
+  assert.equal(s.conquered['schweidnitz'], 'austria', 'and the one he passed through');
+});
+
+test('an objective you march away from falls too', () => {
+  // Daun starts his movement phase standing on Schweidnitz and leaves it
+  let s = placed(fresh(), { daun: 'schweidnitz', schwerin: 'konigsberg', keith: 'konigsberg' });
+  assert.equal(s.conquered['schweidnitz'], undefined);
+
+  s = act(toAustria(s), { type: 'move', by: 'p1', pieceId: 'daun', to: 'striegau' });
+  assert.equal(s.conquered['schweidnitz'], 'austria', '"or he starts his movement phase on it and moves away"');
+});
+
+test('marching over a protected objective marks it, and combat can still win it', () => {
+  // Keith holds Breslau's ground from Strehlen; Daun sweeps Breslau anyway
+  let s = armed(placed(fresh(), { daun: 'oels', schwerin: 'konigsberg', keith: 'strehlen' }), { daun: 8, keith: 1 });
+  s = toAustria(s);
+  s = act(s, { type: 'move', by: 'p1', pieceId: 'daun', to: 'breslau' });
+  assert.equal(s.conquered['breslau'], undefined, 'protected — it does not fall');
+  assert.equal(s.pendingConquest['breslau'], 'austria', 'but it is marked with a question mark');
+
+  // in the same stage's combat, Daun drives Keith off Strehlen
+  s = act(s, { type: 'attack', by: 'p1', attackerId: 'daun', defenderId: 'keith' });
+  s = resolveRetreat(act(s, { type: 'combatPass', by: 'p1' }));
+  assert.equal(s.conquered['breslau'], undefined, 'still nothing — the phase has not come yet');
+
+  // ending the stage runs the retroactive conquest phase
+  s = endStage(s);
+  assert.equal(s.conquered['breslau'], 'austria', 'the protector is gone, so Breslau falls after all');
+  assert.deepEqual(s.pendingConquest, {}, 'the mark is spent either way');
+});
+
+test('a question mark comes off if the protector is still standing', () => {
+  let s = placed(fresh(), { daun: 'oels' }); // Schwerin and Keith stay at Strehlen
+  s = act(toAustria(s), { type: 'move', by: 'p1', pieceId: 'daun', to: 'breslau' });
+  assert.equal(s.pendingConquest['breslau'], 'austria');
+
+  s = endStage(s);
+  assert.equal(s.conquered['breslau'], undefined, 'Prussia held on, so nothing was taken');
+  assert.deepEqual(s.pendingConquest, {}, 'and the mark is removed');
+  assert.ok(s.log.some((l) => /still covered/.test(l)));
+});
+
+test('only the nation whose ground it is may reconquer, and the conqueror now protects it', () => {
+  // Austria takes Breslau while Prussia is away
+  let s = placed(fresh(), { daun: besideBreslau(), schwerin: 'konigsberg', keith: 'konigsberg' });
+  s = act(toAustria(s), { type: 'move', by: 'p1', pieceId: 'daun', to: 'breslau' });
+  assert.equal(s.conquered['breslau'], 'austria');
+
+  // roles reverse: Daun standing on it now protects it FROM Prussia
+  assert.equal(defendingNation('breslau'), 'prussia', 'Prussia is whose ground it is');
+  assert.equal(objectiveProtected(s, 'breslau'), true, 'and Austria, holding it, is what protects it now');
+
+  // Hanover may not reconquer in Prussia — "only Hanover can reconquer objectives in Hanover"
+  assert.equal(canTake(s, 'breslau', 'hanover'), false);
+  assert.equal(canTake(s, 'breslau', 'prussia'), true);
 });
 
 test('Prussia defends occupied Saxony — nobody else can', () => {

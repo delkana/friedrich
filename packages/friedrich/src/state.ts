@@ -118,6 +118,14 @@ export interface FriedrichState extends BaseState {
   readonly sightings: Readonly<Record<string, Sighting>>;
   /** Objective city id → the attacker nation that currently holds it. */
   readonly conquered: Readonly<Record<string, Nation>>;
+  /**
+   * The question marks of rule 5. A general moved over an objective that was
+   * protected at the time, so it did not fall — yet. If the protector is driven
+   * off in this same stage's combat, the retroactive conquest phase makes it
+   * fall after all; if he is still standing, the marker just comes off.
+   * Objective id → the nation that moved over it.
+   */
+  readonly pendingConquest: Readonly<Record<string, Nation>>;
   /** Nations forced out of the war by the Cards of Fate. */
   readonly eliminated: readonly Nation[];
   /** The Cards of Fate deck (top = index 0) and the ones already executed. */

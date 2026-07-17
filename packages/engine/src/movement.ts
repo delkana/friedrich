@@ -64,3 +64,50 @@ export function reachableNodes(
   result.delete(from);
   return result;
 }
+
+/**
+ * Every legal route from `from` to `to`, under the same rules as
+ * `reachableNodes`. Each path starts at `from` and ends at `to`.
+ *
+ * Which cities a general passes THROUGH can matter as much as where he stops —
+ * in Friedrich he conquers objectives by moving over them — and a destination
+ * three cities off is often reachable more than one way. Paths are short (four
+ * steps at the very most) on a road net where a city has a handful of
+ * neighbours, so listing them outright is cheap and exact.
+ */
+export function pathsBetween(
+  graph: MapGraph,
+  from: NodeId,
+  to: NodeId,
+  occupied: ReadonlySet<NodeId>,
+  opts: ReachOptions = {},
+): NodeId[][] {
+  const maxSteps = opts.maxSteps ?? 3;
+  const maxStepsMainRoad = opts.maxStepsMainRoad ?? 4;
+  const out: NodeId[][] = [];
+  const path: NodeId[] = [from];
+  const seen = new Set<NodeId>([from]);
+
+  const walk = (node: NodeId, steps: number, allMain: boolean): void => {
+    if (node === to) {
+      out.push([...path]);
+      return; // a route that goes on past its destination is a different move
+    }
+    if (steps >= (allMain ? maxStepsMainRoad : maxSteps)) return;
+    for (const next of graph.adjacency.get(node) ?? []) {
+      if (seen.has(next)) continue;
+      // may not pass through a piece; stopping on one is the caller's business
+      if (occupied.has(next) && next !== to) continue;
+      const edge = edgeBetween(graph, node, next);
+      const main = allMain && !!edge?.mainRoad;
+      if (steps + 1 > (main ? maxStepsMainRoad : maxSteps)) continue;
+      seen.add(next);
+      path.push(next);
+      walk(next, steps + 1, main);
+      path.pop();
+      seen.delete(next);
+    }
+  };
+  walk(from, 0, true);
+  return out;
+}

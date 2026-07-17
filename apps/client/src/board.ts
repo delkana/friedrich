@@ -356,11 +356,19 @@ function boardInner(): string {
     .map((n) => {
       const reach = targets.has(n.id) ? 'reach' : peek.has(n.id) ? 'peek' : '';
       // objective banner: solid = held by its attacker, hollow = still the defender's
+      // The objective banner beside a city, in the colour of whoever wants it:
+      //   hollow  — still the defender's
+      //   filled  — conquered, the coat of arms is on it
+      //   "?"     — marched over while protected; the retroactive conquest phase
+      //             at the end of this stage decides it (rule 5)
+      // A diagonal stripe marks a second-order objective.
       const objCol = n.objectiveFor ? (NATION_COLOR[n.objectiveFor as Nation] ?? '#888') : '';
       const held = n.objectiveFor ? state.conquered[n.id] === n.objectiveFor : false;
+      const pending = n.objectiveFor ? state.pendingConquest[n.id] : undefined;
       const obj = n.objectiveFor
-        ? `<rect x="${n.x + 22}" y="${n.y - 54}" width="30" height="30" fill="${held ? objCol : '#e7d9b8'}" stroke="${objCol}" stroke-width="${held ? 3 : 5}"/>` +
-          (n.objectiveOrder === 2 ? `<line x1="${n.x + 24}" y1="${n.y - 26}" x2="${n.x + 50}" y2="${n.y - 52}" stroke="${held ? '#f2e7c8' : objCol}" stroke-width="4"/>` : '')
+        ? `<rect class="obj ${held ? 'held' : ''} ${pending ? 'pending' : ''}" x="${n.x + 22}" y="${n.y - 54}" width="30" height="30" fill="${held ? objCol : '#e7d9b8'}" stroke="${objCol}"/>` +
+          (n.objectiveOrder === 2 ? `<line class="obj2" x1="${n.x + 24}" y1="${n.y - 26}" x2="${n.x + 50}" y2="${n.y - 52}" stroke="${held ? '#f2e7c8' : objCol}"/>` : '') +
+          (pending ? `<text class="objq" x="${n.x + 37}" y="${n.y - 30}" fill="${objCol}">?</text>` : '')
         : '';
       const depot = n.depot ? `<text x="${n.x - 32}" y="${n.y - 24}" font-size="42" fill="#9e2b25" text-anchor="middle">✳</text>` : '';
       return `<g><circle class="node ${reach}" data-node="${n.id}" cx="${n.x}" cy="${n.y}" r="${n.setup ? 30 : 24}" stroke="${SUIT_COLOR[n.suit]}"/>${obj}${depot}<text class="nlabel ${n.setup ? 'setuplbl' : ''}" x="${n.x}" y="${n.y + 60}">${n.name}</text></g>`;
@@ -1029,13 +1037,20 @@ const HELP_HTML = `<div id="help-box">
       that's why the same card is decisive in one province and useless in the next. The side that is behind plays;
       the instant it draws level the turn passes. Whoever cannot or will not play <b>loses</b>, taking casualties
       equal to the gap and retreating that many cities.</p></section>
-    <section><h5>Taking objectives</h5><p>March a general onto an objective of his own colour and it is
-      yours — <b>unless it is protected</b>. One general of the <b>defending nation</b> standing within
-      <b>three cities</b> holds it, however big the army that walks in: you must draw the defender off or
-      destroy him first. Each nation defends its <b>own</b> home country only — Prussia does not cover
-      Hanover's objectives, nor Hanover Prussia's. <b>Saxony is the exception</b>: it is the Imperial Army's
-      home and every Imperial objective sits in it, so the deeper gold marks the ground <b>Prussia occupies
-      and defends</b>.</p></section>
+    <section><h5>Taking objectives</h5><p>Each objective is the little <b>square banner</b> beside a city, in
+      the colour of the nation that wants it: <b>hollow</b> = still the defender's, <b>filled</b> = conquered,
+      <b>?</b> = decided at the end of the stage (below). A stripe marks a second-order objective.</p>
+      <p>You take every objective of your colour that your general <b>marches over</b> — the one he leaves,
+      the ones he passes through, the one he stops on — <b>unless it is protected</b>. One general of the
+      <b>defending nation</b> within <b>three cities</b> holds it, however big the army that walks past. Each
+      nation defends its <b>own</b> home country only: Prussia does not cover Hanover's objectives, nor
+      Hanover Prussia's. <b>Saxony is the exception</b> — Imperial home, every Imperial objective in it, so the
+      deeper gold marks the ground <b>Prussia occupies and defends</b>.</p>
+      <p>March over a <b>protected</b> objective and it is marked <b>?</b> instead. If the protector is driven
+      off in this same stage's fighting, the city falls after all when the stage ends — and it need not be
+      your general who drove him off. If he is still standing, the mark simply comes off. To win a city
+      <b>back</b>, only the nation whose ground it is may do it, and now the <b>occupier</b> is the one
+      protecting it.</p></section>
     <section><h5>Retreat</h5><p>The loser retreats <b>exactly</b> as many cities as it lost troops, never twice
       through the same city and never through <b>any</b> piece — not even to take an undefended supply train.
       It must end up <b>as far from the winner as it can</b>, and the <b>winner</b> picks which of those cities.
