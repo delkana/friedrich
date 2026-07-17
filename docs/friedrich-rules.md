@@ -140,6 +140,30 @@ So depot cities and "T" cities are different things that sometimes coincide
   supplies unlimited same-color generals. Captured when an enemy general enters
   its city (mover must stop).
 
+## Hidden information — what a player may know
+- **Troop counts are secret**, written on the army sheet. **Combat is the only
+  thing that reveals them:** "First, the opposing players state how many troops
+  their participating generals command." That is declared aloud ⇒ **public**
+  knowledge, not per-viewer.
+- A declaration is the **stack's total**, never the split inside it (that stays
+  on the army sheet). So an exact number is only ever pinned to a general who
+  **fought alone**; a stack is only ever a last-seen total.
+- **Casualties are public** (they are the final score), so after a battle the
+  survivors' total is still known exactly.
+- **Recruiting clouds it:** a player "just says how many troops he is recruiting,
+  but not which general(s) will receive them … he has to tell the other players
+  the new troops-total of his nation". So the nation-wide total is public, and
+  every one of that nation's declared strengths becomes a *was*.
+- Engine: `state.sightings[pieceId] = { total, with, certain }` (public).
+  Declared on `attack`, re-declared from the true state after combat resolves,
+  clouded (`certain: false`) when that nation recruits. `redact` hides the
+  counters (`HIDDEN_TROOPS`) and passes sightings through. **The log is public
+  and is NOT redacted** — never write private facts into it (a recruit must not
+  name who was reinforced).
+- The client shows `?` / `4` / `4?`. Note the last-known display is a **memory
+  aid the physical game does not provide** — at a table you must remember the
+  declaration yourself. Deliberate, agreed with the user 2026-07-17.
+
 ## Supply
 - **In home country → always supplied.** Russia and France have **no home
   country** — supplied only at their **depot cities**.
