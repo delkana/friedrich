@@ -120,14 +120,47 @@
         letter-spacing: 2px; text-transform: uppercase; color: var(--gold-dim);
         border-bottom: 1px solid #ffffff10; }
 
-      /* log, top-left below the command bar */
-      #log-panel { left: 14px; top: 14px; width: 300px; max-height: 30vh; display: flex; flex-direction: column; opacity: .94; }
+      /* left column: dispatches + selected army, stacked so they never overlap */
+      #left-col { position: absolute; left: 14px; top: 14px; width: 296px;
+        display: flex; flex-direction: column; gap: 10px; max-height: calc(100% - 215px); }
+      #left-col .panel { position: static; width: auto; opacity: .96; }
+      #log-panel { display: flex; flex-direction: column; max-height: 30vh; min-height: 0; }
       #log-list { margin: 0; padding: 8px 14px 12px; list-style: none; overflow-y: auto; font-size: 13px; }
       #log-list li { padding: 2px 0; color: #cdbfa0; border-bottom: 1px dashed #ffffff0d; }
       #log-list li:last-child { color: var(--text); }
 
-      /* command bar, bottom-center */
-      #command { left: 50%; transform: translateX(-50%); bottom: 16px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+      /* bottom column: your hand stacked above the command bar (never overlap) */
+      #bottom-col { position: absolute; left: 50%; transform: translateX(-50%); bottom: 16px;
+        display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: min(940px, 94vw); }
+      #bottom-col .panel { position: static; transform: none; }
+      #hand-panel { max-width: min(920px, 92vw); }
+      #hand-panel .hand-cards { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; padding: 8px 12px 10px; }
+      #hand-panel .hint { color: var(--muted); font-size: 11px; font-style: italic; padding: 0 12px 8px; text-align: center; }
+      .tc.dim { opacity: .28; }
+      .tc.sm { width: 38px; height: 52px; }
+      .tc.sm .sym { font-size: 15px; } .tc.sm .val { font-size: 12px; }
+
+      /* selected army (inside #left-col) */
+      #army-panel .rows { padding: 6px 12px 10px; font-size: 13px; }
+      #army-panel .gen { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px dashed #ffffff10; }
+      #army-panel .gen.cut { color: #d98a84; }
+      #army-panel .tot { margin-top: 6px; font-family: Georgia, serif; color: var(--parch); }
+      #army-panel .where { color: var(--muted); font-size: 12px; padding: 0 12px 2px; }
+
+      /* victory progress, right side */
+      #status-panel { right: 14px; top: 100px; width: 218px; }
+      #status-panel .rows { padding: 6px 0 10px; }
+      .stat-row { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 12px; font-size: 12.5px; }
+      .stat-row .nm { display: flex; align-items: center; gap: 6px; }
+      .stat-row .sw { width: 9px; height: 9px; border-radius: 2px; }
+      .stat-row.out { opacity: .45; }
+      .stat-row.out .nm { text-decoration: line-through; }
+      .bar { height: 4px; background: #0c0a07; border-radius: 3px; overflow: hidden; margin: 1px 12px 5px; }
+      .bar i { display: block; height: 100%; }
+      .eased { color: var(--gold-dim); font-size: 10px; letter-spacing: .5px; }
+
+      /* command bar (inside #bottom-col) */
+      #command { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
       #status-line { font-family: Georgia, serif; font-style: italic; color: var(--muted); min-width: 200px; }
       button.gb { font: inherit; font-size: 13px; letter-spacing: .5px; padding: 8px 16px; cursor: pointer;
         color: #f2e7c8; background: linear-gradient(#3a2f18, #241b0d); border: 1px solid #5a4a24;

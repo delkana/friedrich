@@ -22,6 +22,9 @@ import {
   NATION_ORDER,
   NATION_OF_ROLE,
   HIDDEN_TROOPS,
+  ATTACKER_NATIONS,
+  objectiveProgress,
+  isEased,
   areEnemies,
   MAX_STACK,
   type FriedrichState,
@@ -249,11 +252,22 @@ const mapView = () => document.getElementById('map-view')!;
 const boardSvg = () => document.getElementById('board-svg') as unknown as SVGSVGElement;
 
 function applyView(): void {
+  // never write a non-finite viewBox — it silently blanks the whole map
+  if (![view.x, view.y, view.w, view.h].every(Number.isFinite) || view.w <= 0 || view.h <= 0) {
+    fitView();
+    return;
+  }
   boardSvg().setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
 }
 
 function fitView(): void {
   const r = mapView().getBoundingClientRect();
+  // the pane may not be laid out yet (0x0) — an aspect ratio of 0/0 is NaN and
+  // would poison the viewBox, so wait for a real size and try again
+  if (r.width < 1 || r.height < 1) {
+    requestAnimationFrame(fitView);
+    return;
+  }
   const ar = r.width / r.height;
   const pad = 40;
   if (ar > BOARD_W / BOARD_H) { view.h = BOARD_H + pad * 2; view.w = view.h * ar; }
@@ -369,7 +383,8 @@ function setupPanZoom(): void {
 
   window.addEventListener('resize', () => {
     const r = el.getBoundingClientRect();
-    view.h = view.w * (r.height / r.width);
+    if (r.width < 1 || r.height < 1) return;
+    view.h = view.w * (r.height / r.width); // keep the viewBox aspect == the pane's
     applyView();
   });
 }
@@ -439,6 +454,86 @@ function combatBox(): string {
     ${picker}${controls}</div>`;
 }
 
+// ---- player-knowledge panels ---------------------------------------------
+
+/** Whose hand to show: the active nation if you control it, else your own. */
+function handNation(): Nation | null {
+  const active = activeNation();
+  if (mode === 'local') return active;
+  const mine = myNations();
+  if (!mine || mine.size === 0) return null;
+  return mine.has(active) ? active : ([...mine][0] ?? null);
+}
+
+function handCardHtml(card: TacticalCard, usable: boolean): string {
+  const dim = usable ? '' : 'dim';
+  if (card.kind === 'reserve') return `<div class="tc sm reserve ${dim}">RES</div>`;
+  const red = isRed(card.suit) ? 'red' : '';
+  return `<div class="tc sm ${red} ${dim}"><span class="sym">${SUIT_SYMBOL[card.suit]}</span><span class="val">${card.value}</span></div>`;
+}
+
+/** Your tactical cards, sorted, with the selected general's sector highlighted. */
+function handPanel(): string {
+  const nat = handNation();
+  if (!nat) return '';
+  const hand = [...(state.hands[nat] ?? [])].sort((a, b) => {
+    const ak = a.kind === 'reserve' ? 'zz' : a.suit;
+    const bk = b.kind === 'reserve' ? 'zz' : b.suit;
+    if (ak !== bk) return ak < bk ? -1 : 1;
+    return (a.kind === 'reserve' ? 0 : a.value) - (b.kind === 'reserve' ? 0 : b.value);
+  });
+  const sel = selected ? state.pieces[selected] : null;
+  const sectorSuit = sel ? friedrichMap.nodes.get(sel.node)?.suit : undefined;
+  const cards =
+    hand.map((c) => handCardHtml(c, !sectorSuit || c.kind === 'reserve' || c.suit === sectorSuit)).join('') ||
+    '<span style="color:#9c8f74">— no cards —</span>';
+  const hint = sectorSuit && sel
+    ? `Bright cards are playable in ${SUIT_SYMBOL[sectorSuit]} ${sectorSuit} — ${sel.id}'s sector (Reserves are wild)`
+    : 'Select a general to see which cards its sector allows';
+  return `<h4>${NATION_LABEL[nat]} — hand (${hand.length})</h4><div class="hand-cards">${cards}</div><div class="hint">${hint}</div>`;
+}
+
+/** The selected general's stack: who's there, ranks, troops, supply. */
+function armyPanel(): string {
+  if (!selected) return '';
+  const p = state.pieces[selected];
+  if (!p) return '';
+  const node = friedrichMap.nodes.get(p.node)!;
+  const stack = piecesAt(p.node).filter((x) => x.nation === p.nation).sort((a, b) => a.rank - b.rank);
+  const known = stack.filter((g) => g.troops !== HIDDEN_TROOPS);
+  const total = known.reduce((n, g) => n + g.troops, 0);
+  const rows = stack
+    .map((g) => `<div class="gen ${g.faceUp ? '' : 'cut'}">
+        <span>${g.id === selected ? '▸ ' : ''}${g.id} <span style="opacity:.55">rank ${g.rank}</span></span>
+        <span>${g.troops === HIDDEN_TROOPS ? '?' : g.troops}${g.faceUp ? '' : ' ✳'}</span></div>`)
+    .join('');
+  const cut = stack.some((g) => !g.faceUp)
+    ? '<div style="color:#d98a84;font-size:11.5px;margin-top:6px">✳ out of supply — destroyed at its next supply phase unless resupplied</div>'
+    : '';
+  const obj = node.objectiveFor ? ` · objective of ${NATION_LABEL[node.objectiveFor as Nation]}` : '';
+  return `<h4>Army</h4>
+    <div class="where">${node.name} · ${SUIT_SYMBOL[node.suit]} ${node.suit}${obj}</div>
+    <div class="rows">${rows}<div class="tot">Strength ${total}${known.length < stack.length ? '+?' : ''} troops${stack.length > 1 ? ` · ${stack.length} generals` : ''}</div>${cut}</div>`;
+}
+
+/** Who is close to winning: each attacker's objectives, and Prussia's survival. */
+function statusPanel(): string {
+  const rows = ATTACKER_NATIONS.map((n) => {
+    if (state.eliminated.includes(n)) {
+      return `<div class="stat-row out"><span class="nm"><span class="sw" style="background:${NATION_COLOR[n]}"></span>${NATION_LABEL[n]}</span><span>withdrawn</span></div>`;
+    }
+    const { held, total } = objectiveProgress(state, n);
+    const pct = total ? Math.round((held / total) * 100) : 0;
+    const eased = isEased(state, n) ? ' <span class="eased">EASED</span>' : '';
+    return `<div class="stat-row"><span class="nm"><span class="sw" style="background:${NATION_COLOR[n]}"></span>${NATION_LABEL[n]}${eased}</span><span>${held}/${total}</span></div>
+      <div class="bar"><i style="width:${pct}%;background:${NATION_COLOR[n]}"></i></div>`;
+  }).join('');
+  const outCount = (['russia', 'sweden', 'france'] as Nation[]).filter((n) => state.eliminated.includes(n)).length;
+  const prussia = `<div class="stat-row"><span class="nm"><span class="sw" style="background:${NATION_COLOR.prussia}"></span>Prussia <span style="opacity:.6">survival</span></span><span>${outCount}/3</span></div>
+    <div class="bar"><i style="width:${(outCount / 3) * 100}%;background:${NATION_COLOR.prussia}"></i></div>`;
+  return `<h4>Victory progress</h4><div class="rows">${rows}${prussia}</div>`;
+}
+
 function renderChrome(): void {
   const nation = activeNation();
   document.getElementById('turn-num')!.textContent = String(state.turn);
@@ -479,6 +574,20 @@ function renderChrome(): void {
   undoBtn.hidden = !(selMoved && !state.combat);
   const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement;
   resetBtn.hidden = mode === 'net'; // server owns the game online
+
+  // player-knowledge panels (hidden during a battle — the duel dialog covers it)
+  const inBattle = !!state.combat;
+  const handEl = document.getElementById('hand-panel') as HTMLElement;
+  const handHtml = handPanel();
+  handEl.innerHTML = handHtml;
+  handEl.hidden = inBattle || !handHtml;
+  const armyEl = document.getElementById('army-panel') as HTMLElement;
+  const armyHtml = armyPanel();
+  armyEl.innerHTML = armyHtml;
+  armyEl.hidden = inBattle || !armyHtml;
+  const statusEl = document.getElementById('status-panel') as HTMLElement;
+  statusEl.innerHTML = statusPanel();
+  statusEl.hidden = inBattle;
 
   const overlay = document.getElementById('combat-overlay')!;
   if (state.combat) { overlay.classList.add('show'); overlay.innerHTML = combatBox(); }
@@ -657,12 +766,19 @@ function mount(): void {
       <div id="vignette"></div>
       ${COMPASS}
       <div id="hud">
-        <div id="log-panel" class="panel"><h4>Dispatches</h4><ul id="log-list"></ul></div>
-        <div id="command" class="panel">
-          <span id="status-line"></span>
-          <button class="gb" id="btn-undo" hidden>Undo Move</button>
-          <button class="gb primary" id="btn-end">End Stage</button>
-          <button class="gb" id="btn-reset">New Game</button>
+        <div id="left-col">
+          <div id="log-panel" class="panel"><h4>Dispatches</h4><ul id="log-list"></ul></div>
+          <div id="army-panel" class="panel" hidden></div>
+        </div>
+        <div id="status-panel" class="panel"></div>
+        <div id="bottom-col">
+          <div id="hand-panel" class="panel"></div>
+          <div id="command" class="panel">
+            <span id="status-line"></span>
+            <button class="gb" id="btn-undo" hidden>Undo Move</button>
+            <button class="gb primary" id="btn-end">End Stage</button>
+            <button class="gb" id="btn-reset">New Game</button>
+          </div>
         </div>
         <div id="zoom" class="panel">
           <button class="gb" id="zoom-in">+</button>
