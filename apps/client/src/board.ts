@@ -124,6 +124,7 @@ let selected: string | null = null;
 let selectedTrain: string | null = null;
 let hovered: string | null = null; // inspect a stack without selecting it
 let hoveredTrain: string | null = null; // ditto for a supply train
+let hoveredNode: string | null = null; // the city under the cursor
 let pendingReserve: string | null = null;
 let helpOpen = false;
 let recruitOpen = false;
@@ -711,13 +712,24 @@ function handPanel(): string {
     return (a.kind === 'reserve' ? 0 : a.value) - (b.kind === 'reserve' ? 0 : b.value);
   });
   const sel = selected ? state.pieces[selected] : null;
-  const sectorSuit = sel ? friedrichMap.nodes.get(sel.node)?.suit : undefined;
+  // While you are choosing where to march, hovering a destination answers the
+  // question you are actually asking: not "what can he play here?" but "what
+  // could he play THERE?" — a general plays the suit of the sector he stands in,
+  // so the answer changes with every city he could reach.
+  const preview = sel && hoveredNode && hoveredNode !== sel.node && moveTargets().has(hoveredNode) ? hoveredNode : null;
+  const at = preview ?? sel?.node;
+  const sectorSuit = at ? friedrichMap.nodes.get(at)?.suit : undefined;
   const cards =
     hand.map((c) => handCardHtml(c, !sectorSuit || c.kind === 'reserve' || c.suit === sectorSuit)).join('') ||
     '<span style="color:#9c8f74">— no cards —</span>';
-  const hint = sectorSuit && sel
-    ? `Bright cards are playable in ${SUIT_SYMBOL[sectorSuit]} ${sectorSuit} — ${sel.id}'s sector (Reserves are wild)`
-    : 'Select a general to see which cards its sector allows';
+
+  const who = sel ? GENERAL_NAME[sel.id] ?? sel.id : '';
+  const suit = sectorSuit ? `${SUIT_SYMBOL[sectorSuit]} ${sectorSuit}` : '';
+  const hint = !sel || !sectorSuit
+    ? 'Select a general to see which cards its sector allows'
+    : preview
+      ? `<b>If ${who} marches to ${friedrichMap.nodes.get(preview)?.name}:</b> ${suit} — these are the cards he could play there`
+      : `Bright cards are playable in ${suit} — ${friedrichMap.nodes.get(sel.node)?.name}, where ${who} stands (Reserves are wild)`;
   return `<h4>${NATION_LABEL[nat]} — hand (${hand.length})</h4><div class="hand-cards">${cards}</div><div class="hint">${hint}</div>`;
 }
 
@@ -745,7 +757,7 @@ function armyPanel(): string {
   const stack = piecesAt(p.node).filter((x) => x.nation === p.nation).sort((a, b) => a.rank - b.rank);
   const rows = stack
     .map((g) => `<div class="gen ${g.faceUp ? '' : 'cut'}">
-        <span>${g.id === focus ? '▸ ' : ''}${g.id} <span style="opacity:.55">rank ${g.rank}</span></span>
+        <span>${g.id === focus ? '▸ ' : ''}${generalName(g.id)} <span style="opacity:.55">rank ${g.rank}</span></span>
         <span>${strengthText(g)}${g.faceUp ? '' : ' ✳'}</span></div>`)
     .join('');
   const cut = stack.some((g) => !g.faceUp)
@@ -813,8 +825,8 @@ function recruitBox(): string {
   const depots = sites;
 
   const targets = [
-    ...onMap.map((p) => `<option value="reinforce:${p.id}">Reinforce ${p.id} (${p.troops === HIDDEN_TROOPS ? '?' : p.troops}) at ${friedrichMap.nodes.get(p.node)?.name}</option>`),
-    ...lost.map((g) => `<option value="return:${g.id}">Bring back ${g.id} (rank ${g.rank}) — needs ≥1 troop</option>`),
+    ...onMap.map((p) => `<option value="reinforce:${p.id}">Reinforce ${generalName(p.id)} (${p.troops === HIDDEN_TROOPS ? '?' : p.troops}) at ${friedrichMap.nodes.get(p.node)?.name}</option>`),
+    ...lost.map((g) => `<option value="return:${g.id}">Bring back ${generalName(g.id)} (rank ${g.rank}) — needs ≥1 troop</option>`),
   ].join('');
 
   const cards = hand
@@ -851,6 +863,8 @@ function recruitBox(): string {
 // ---- set-up: secret troop allotment --------------------------------------
 
 const GENERAL_NAME: Record<string, string> = Object.fromEntries(ALL_GENERALS.map((g) => [g.id, g.name]));
+/** "Friedrich d. Große", never the bare id. The screen shows people, not keys. */
+const generalName = (id: string): string => GENERAL_NAME[id] ?? id;
 
 /** Your nations still waiting to be raised, in play order. */
 function nationsToAllot(): Nation[] {
@@ -919,7 +933,7 @@ function setupBox(): string {
     .map((g) => {
       const n = draft[g.id] ?? 0;
       return `<div class="setup-row ${g.id === allotHover ? 'hot' : ''}" data-general="${g.id}">
-        <span class="nm">${GENERAL_NAME[g.id] ?? g.id} <small>· rank ${g.rank} · ${friedrichMap.nodes.get(g.node)?.name ?? g.node}</small></span>
+        <span class="nm">${generalName(g.id)} <small>· rank ${g.rank} · ${friedrichMap.nodes.get(g.node)?.name ?? g.node}</small></span>
         <button class="gb" data-setup="minus:${g.id}" ${n <= TROOP_PER_GENERAL_MIN ? 'disabled' : ''}>−</button>
         <b class="rec-n">${n}</b>
         <button class="gb" data-setup="plus:${g.id}" ${n >= max || left <= 0 ? 'disabled' : ''}>+</button>
@@ -1067,9 +1081,9 @@ function renderChrome(): void {
       : selectedTrain
         ? 'Supply train selected — choose a destination'
         : selMoved
-          ? `${selected} has moved — undo, or choose another general`
+          ? `${generalName(selected!)} has moved — undo, or choose another general`
           : selected
-            ? `${selected} selected — choose a destination or foe`
+            ? `${generalName(selected)} selected — choose a destination or foe`
             : `Your move — choose a ${NATION_LABEL[nation]} general`;
   (document.getElementById('btn-end') as HTMLButtonElement).disabled = !!state.combat || !myTurn;
   const undoBtn = document.getElementById('btn-undo') as HTMLButtonElement;
@@ -1350,11 +1364,6 @@ function onReserveValue(raw: string): void {
 
 // ---- mount ---------------------------------------------------------------
 
-const COMPASS = `<svg id="compass" viewBox="-60 -60 120 120" stroke="#c6a24a" fill="#c6a24a">
-  <circle r="52" fill="none" stroke-width="3"/><circle r="40" fill="none" stroke-width="1"/>
-  <path d="M0,-50 L9,0 L0,50 L-9,0 Z" fill="#e7d9b8"/><path d="M-50,0 L0,9 L50,0 L0,-9 Z"/>
-  <text y="-56" text-anchor="middle" font-family="Georgia" font-size="18" stroke="none">N</text></svg>`;
-
 function mount(): void {
   document.getElementById('app')!.innerHTML = `
     <div id="topbar">
@@ -1370,7 +1379,6 @@ function mount(): void {
     <div id="map-view">
       <svg id="board-svg" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"><g id="board-root"></g></svg>
       <div id="vignette"></div>
-      ${COMPASS}
       <div id="hud">
         <div id="left-col">
           <div id="log-panel" class="panel"><h4>Dispatches</h4><ul id="log-list"></ul></div>
@@ -1408,9 +1416,11 @@ function mount(): void {
     const target = e.target as Element;
     const id = target.closest('[data-piece]')?.getAttribute('data-piece') ?? null;
     const train = target.closest('[data-train]')?.getAttribute('data-train') ?? null;
-    if (id === hovered && train === hoveredTrain) return;
+    const node = target.closest('[data-node]')?.getAttribute('data-node') ?? null;
+    if (id === hovered && train === hoveredTrain && node === hoveredNode) return;
     hovered = id;
     hoveredTrain = train;
+    hoveredNode = node;
     // during set-up the highlight runs both ways: hovering a counter on the map
     // picks out its row in the panel
     if (state.phase === 'setup') { allotHover = id; renderMap(); }
@@ -1419,10 +1429,11 @@ function mount(): void {
   });
   root.addEventListener('mouseout', (e) => {
     const target = e.target as Element;
-    if (!target.closest('[data-piece],[data-train]')) return;
-    if (!hovered && !hoveredTrain) return;
+    if (!target.closest('[data-piece],[data-train],[data-node]')) return;
+    if (!hovered && !hoveredTrain && !hoveredNode) return;
     hovered = null;
     hoveredTrain = null;
+    hoveredNode = null;
     if (state.phase !== 'setup') applyPeek();
     renderChrome();
   });
