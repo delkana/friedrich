@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { IllegalActionError } from '@friedrich/engine';
+import { IllegalActionError, randomSeed } from '@friedrich/engine';
 import { Friedrich, suggestAllotment, depotsBlocked, reentrySites } from './game.js';
 import { NATION_ORDER } from './powers.js';
 import { TROOP_MAX, TROOP_PER_GENERAL_MAX, DEPOT_CITIES, substituteSites } from './pieces.js';
@@ -75,6 +75,21 @@ test('set-up raffles the roles, places every general, and waits for troop allotm
   // Every player is dealt a role, and between them they cover all four.
   const dealt = PLAYERS.flatMap((p) => s.seats[p] ?? []);
   assert.deepEqual([...dealt].sort(), ['elisabeth', 'frederick', 'mariaTheresa', 'pompadour']);
+});
+
+test('a new game is a new deal, not a repeat of the last one', () => {
+  // Regression: both the hotseat client and the server used to pass a constant
+  // seed (a literal, and the room code), so every game dealt the identical deck
+  // and raffled Frederick to the same seat. setup() was never the problem — the
+  // callers were, which is why nothing here caught it.
+  const games = Array.from({ length: 20 }, () => Friedrich.setup(randomSeed(), PLAYERS));
+  const decks = new Set(games.map((s) => s.drawDeck.map((c) => c.id).join(',')));
+  assert.equal(decks.size, 20, 'every game shuffles its own deck');
+
+  // and the shuffle reaches the players: Prussia's opening hand is dealt off the
+  // top of that deck once the armies are raised
+  const opening = new Set(games.map((s) => allotAll(s).hands.prussia.map((c) => c.id).sort().join(',')));
+  assert.equal(opening.size, 20, "Prussia's opening hand differs game to game");
 });
 
 test('the raffle deals roles to different seats across games', () => {

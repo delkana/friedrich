@@ -10,6 +10,7 @@ import {
   areAdjacent,
   mustPlay,
   legalCardIds,
+  randomSeed,
   type Suit,
   type TacticalCard,
 } from '@friedrich/engine';
@@ -65,7 +66,7 @@ const BOARD_H = 4000;
 
 // ---- state ---------------------------------------------------------------
 
-let state: FriedrichState = Friedrich.setup('board-demo', ['A', 'B', 'C', 'D']);
+let state: FriedrichState = Friedrich.setup(randomSeed(), ['A', 'B', 'C', 'D']);
 let selected: string | null = null;
 let selectedTrain: string | null = null;
 let hovered: string | null = null; // inspect a stack without selecting it
@@ -1111,7 +1112,7 @@ function onHudClick(e: Event): void {
   if (t.id === 'btn-recruit') { recruitOpen = true; recruit.troops = 0; recruit.trains = 0; recruit.cards.clear(); renderChrome(); return; }
   if (t.id === 'btn-undo') { if (selected) dispatch({ type: 'undoMove', pieceId: selected }); return; }
   if (t.id === 'btn-end') { selected = null; dispatch({ type: 'endNationTurn' }); return; }
-  if (t.id === 'btn-reset' || t.id === 'go-again') { state = Friedrich.setup('board-demo', ['A', 'B', 'C', 'D']); selected = null; renderMap(); renderChrome(); return; }
+  if (t.id === 'btn-reset' || t.id === 'go-again') { state = Friedrich.setup(randomSeed(), ['A', 'B', 'C', 'D']); selected = null; renderMap(); renderChrome(); return; }
   if (t.id === 'zoom-in') return zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
   if (t.id === 'zoom-out') return zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
   if (t.id === 'zoom-fit') return fitView();
@@ -1296,7 +1297,7 @@ function renderLobby(stage: 'choose' | 'waiting'): void {
 
 function startLocal(): void {
   mode = 'local';
-  state = Friedrich.setup('board-demo', ['A', 'B', 'C', 'D']);
+  state = Friedrich.setup(randomSeed(), ['A', 'B', 'C', 'D']);
   selected = null;
   document.getElementById('lobby')!.classList.remove('show');
   renderMap();

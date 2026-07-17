@@ -9,7 +9,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile, stat } from 'node:fs/promises';
 import { join, normalize, extname } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { DEFAULT_PORT, type ClientMessage, type ServerMessage, type RoomPlayer } from '@friedrich/engine';
+import { DEFAULT_PORT, randomSeed, type ClientMessage, type ServerMessage, type RoomPlayer } from '@friedrich/engine';
 import { Friedrich, authorizeAction, type FriedrichState, type FriedrichAction } from '@friedrich/game';
 
 // ---- rooms ---------------------------------------------------------------
@@ -41,7 +41,9 @@ const isLocked = (room: Room): boolean => room.state !== null && room.state.vers
 
 function rebuildState(room: Room): void {
   const ids = room.seats.map((s) => s.playerId);
-  if (ids.length >= Friedrich.minPlayers) room.state = Friedrich.setup(room.code, ids);
+  // NEVER seed from the room code: it would deal the same game to that room
+  // every time, and the code is public — a player could read the deck order off it
+  if (ids.length >= Friedrich.minPlayers) room.state = Friedrich.setup(randomSeed(), ids);
 }
 
 function send(ws: WebSocket, msg: ServerMessage): void {

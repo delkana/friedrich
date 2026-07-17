@@ -12,6 +12,31 @@ export interface RngState {
   readonly s: number;
 }
 
+/**
+ * A fresh, unguessable seed for a NEW game.
+ *
+ * Everything downstream is deterministic in the seed — the deck order, the deal,
+ * the role raffle — so the seed is the ONE place a game gets its randomness.
+ * Callers must never invent their own: a constant deals the identical game every
+ * time, and anything public (a room code) lets a player read the deck order off
+ * the table. This is the only non-deterministic function in the engine, and it
+ * is called once, before a game exists.
+ */
+export function randomSeed(): string {
+  type CryptoLike = {
+    randomUUID?: () => string;
+    getRandomValues?: <T extends ArrayBufferView>(a: T) => T;
+  };
+  const c = (globalThis as { crypto?: CryptoLike }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  if (c?.getRandomValues) {
+    const bits = c.getRandomValues(new Uint32Array(4));
+    return Array.from(bits, (n) => n.toString(36)).join('-');
+  }
+  // last resort: still varies per game, just not cryptographically
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 /** Hash an arbitrary seed string into a 32-bit integer (xmur3). */
 export function seedFromString(str: string): RngState {
   let h = 1779033703 ^ str.length;
