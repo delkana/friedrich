@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { IllegalActionError } from '@friedrich/engine';
-import { Friedrich, suggestAllotment } from './game.js';
+import { Friedrich, suggestAllotment, depotsBlocked, reentrySites } from './game.js';
 import { NATION_ORDER } from './powers.js';
-import { TROOP_MAX, TROOP_PER_GENERAL_MAX } from './pieces.js';
+import { TROOP_MAX, TROOP_PER_GENERAL_MAX, DEPOT_CITIES, substituteSites } from './pieces.js';
 import { friedrichMap } from './map-data.js';
 import { checkVictory, objectivesOf, requiredObjectives } from './victory.js';
 import { inSupply } from './supply.js';
@@ -521,6 +521,74 @@ test('a lost general returns at a depot and must receive a troop', () => {
   assert.equal(s.pieces['keith']?.troops, 2);
   assert.equal(s.offMap['keith'], undefined, 'no longer off-map');
   assert.equal(s.stageMoves['keith'], 'grunberg', 'may not move the phase it re-enters');
+});
+
+test('with every depot blocked, a nation re-enters in its substitute region at 8 a troop', () => {
+  const base = fresh();
+  assert.equal(depotsBlocked(base, 'prussia'), false, 'Prussia starts with its own depots');
+  assert.deepEqual(reentrySites(base, 'prussia'), { sites: DEPOT_CITIES.prussia, cost: 6 });
+
+  // Austria's generals sit on all five Prussian depots
+  const seize = Object.fromEntries(
+    DEPOT_CITIES.prussia.map((depot, i) => [['daun', 'browne', 'lothringen', 'laudon', 'lacy'][i]!, depot]),
+  );
+  const blocked = placed(base, seize);
+  assert.equal(depotsBlocked(blocked, 'prussia'), true);
+
+  const { sites, cost } = reentrySites(blocked, 'prussia');
+  assert.equal(cost, 8, 'rule 10b: 6 → 8 points');
+  assert.ok(sites.includes('bernau'), 'any city in the Berlin spades sector will do');
+  assert.ok(!sites.includes('breslau'), 'but only that sector');
+
+  // Keith is lost, and must now come back through the substitute site
+  const lost = blocked.pieces['keith']!;
+  const pieces = { ...blocked.pieces };
+  delete pieces['keith'];
+  let s = withHand({ ...blocked, pieces, offMap: { keith: { id: 'keith', nation: 'prussia', rank: lost.rank } } },
+    'prussia', [13]);
+
+  // 13 points buys two troops at the normal rate (12); at the blocked rate it buys one (16 > 13)
+  assert.throws(
+    () => act(s, { type: 'recruit', by: 'p0', node: 'bernau', generalId: 'keith', troops: 2, trains: 0, cardIds: ['pay-0'] }),
+    IllegalActionError,
+    'the surcharge bites',
+  );
+  s = act(s, { type: 'recruit', by: 'p0', node: 'bernau', generalId: 'keith', troops: 1, trains: 0, cardIds: ['pay-0'] });
+  assert.equal(s.pieces['keith']?.node, 'bernau', 'Keith returns at the substitute site');
+  assert.ok(s.log.some((l) => /blocked-depot rate/.test(l)));
+});
+
+test('a depot held by your own other nation does not earn a substitute site', () => {
+  // Frederick plays both Prussia and Hanover, so he can simply march them off —
+  // rule 10a only relieves depots blocked by ANOTHER PLAYER
+  const base = fresh();
+  const hanoverians = ['ferdinand', 'cumberland'];
+  const seize = Object.fromEntries(DEPOT_CITIES.prussia.slice(0, 2).map((d, i) => [hanoverians[i]!, d]));
+  const s = placed(base, seize);
+  assert.equal(depotsBlocked(s, 'prussia'), false);
+});
+
+test('the substitute regions follow the rulebook, sector by sector', () => {
+  const inRegion = (n: Parameters<typeof substituteSites>[0], id: string) => substituteSites(n).includes(id);
+  assert.ok(inRegion('prussia', 'berlin'), 'Prussia: the Berlin spades sector');
+  assert.ok(inRegion('russia', 'warszawa'), 'Russia: the Warszawa spades sector');
+  assert.ok(inRegion('austria', 'brunn'), 'Austria: the Brünn diamonds sector');
+  assert.ok(inRegion('hanover', 'stade'), 'Hanover: the Stade diamonds sector');
+  assert.ok(inRegion('sweden', 'stralsund'), 'Sweden: Sverige and its exclaves');
+  assert.ok(inRegion('imperial', 'erlangen'), 'Imperial: the spades sector south of Hildburghausen');
+  assert.ok(inRegion('france', 'wiesbaden'), 'France: the hearts sector south of Koblenz');
+
+  // Austria's is "Austrian territory only" — Silesia is in the sector but Prussian
+  assert.ok(
+    substituteSites('austria').every((id) => friedrichMap.nodes.get(id)?.home === 'austria'),
+    'Austria may not re-enter on land it does not hold',
+  );
+  // Hanover's is "only north of Munster"
+  const munsterY = friedrichMap.nodes.get('munster-36')!.y;
+  assert.ok(
+    substituteSites('hanover').every((id) => friedrichMap.nodes.get(id)!.y < munsterY),
+    'Hanover stays north of Munster',
+  );
 });
 
 test('a nation may not exceed its troop establishment', () => {

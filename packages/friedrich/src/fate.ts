@@ -11,10 +11,10 @@ import { rngShuffle, type RngState } from '@friedrich/engine';
 export type FateCard =
   | 'elisabeth' // death of the Tsarina — Russia quits (+ a Prussian general retires)
   | 'sweden'    // Sweden quits (+ a Prussian general retires)
-  | 'india'     // colonial drain — Austria & France draw fewer cards (not modeled yet)
-  | 'america'   // France quits (+ Cumberland retires)
-  | 'lordBute'  // Prussia's subsidies cut — fewer draws (not modeled yet)
-  | 'poems'     // Frederick distracted — fewer draws (not modeled yet)
+  | 'india'     // colonial drain — Austria draws 4, France 3
+  | 'america'   // Hanover draws 1; with India also drawn, France quits
+  | 'lordBute'  // Prussia's subsidies cut — Prussia draws 5
+  | 'poems'     // Frederick distracted — Prussia draws 4
   | 'minor';    // a minor event — no mechanical effect
 
 export const FATE_STROKES: readonly FateCard[] = [

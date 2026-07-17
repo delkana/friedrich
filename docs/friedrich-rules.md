@@ -275,16 +275,41 @@ VASSAL setup stacks. Start sectors in parens (army-sheet grid refs).
 - BGG entry is id **12891** (not 9625). BGG HTML/xmlapi 403 anonymously; use
   api.geekdo.com/api/files?objectid=12891&objecttype=thing.
 
-## Known divergences (engine vs rulebook)
+## Recruitment (rule 10)
+- TCs are spent as **money** (any suit), shown to the others, **no change** for
+  overpayment. **Troop = 6**, **supply train = 6**, **general free but must
+  receive ≥1 new troop**. Troops may reinforce any general already on the map.
+  A nation may never exceed its starting establishment.
+- Pieces re-enter on **any one of their nation's depot cities**, where they may
+  legally stack; never where another nation's piece stands. They **may not move**
+  in the phase they re-enter.
+- **All depots blocked by another player** (rule 10a/b) → that nation picks one
+  **substitute re-entry site**, which may change turn to turn, and **every** troop
+  and train it recruits costs **8** instead of 6 (even troops not given to a
+  re-entering general). The permitted regions, by sector:
+  | Nation | Substitute region |
+  |---|---|
+  | Prussia | the Berlin spades sector |
+  | Hanover | the Stade diamonds sector, **north of Munster** only |
+  | Russia | the Warszawa spades sector |
+  | Sweden | Sweden (Sverige), incl. exclaves |
+  | Austria | the Brünn diamonds sector, **Austrian territory only** |
+  | Imperial | the spades sector south of Hildburghausen |
+  | France | the hearts sector south of Koblenz |
 
-Deliberate simplifications still in the code. None is load-bearing for a playable
-game, but each is a real difference a rules lawyer would catch.
+  Note "another **player**", not another nation: pieces you control yourself can
+  simply be marched away, so they block re-entry without earning you a substitute.
 
-- **No substitute recruitment site.** If every depot is blocked, the rules allow
-  recruiting elsewhere at a premium (8 points); we simply refuse.
+## Implementation notes
 - **Fixed-length retreat search is bounded.** Enumerating simple paths of an
   exact length is exponential in the worst case, so `retreat.ts` caps the search
   (400k steps). Real retreats are ≤8 cities and never come close.
+- **Sectors are derived, not listed.** A city's sector is its nearest suit stamp
+  (`sectors.ts`), which is also how its suit is assigned — so the substitute
+  regions above are computed from the rule's own words rather than hand-listed.
+  The four sectors the rulebook names by suit (Berlin/Warszawa spades,
+  Brünn/Stade diamonds) all come out with the right suit, which is a good check
+  on the Voronoi reconstruction.
 
 ## Confidence
 - **High:** player counts/groupings, no-TV combat, card face, suit/sector rule,

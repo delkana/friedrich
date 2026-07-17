@@ -6,6 +6,8 @@
 
 import type { NodeId } from '@friedrich/engine';
 import type { Nation } from './powers.js';
+import { friedrichMap } from './map-data.js';
+import { citiesInSector, sectorOfCity, sectorSouthOf } from './sectors.js';
 
 export interface Piece {
   readonly id: string;
@@ -148,6 +150,49 @@ export const DEPOT_CITIES: Record<Nation, readonly NodeId[]> = {
   imperial: ['hildburghausen'],
   france: ['koblenz', 'gemunden'],
 };
+
+/**
+ * Recruitment when every depot is blocked (rule 10a): "That nation may choose
+ * one city as a substitute re-entry site. The chosen city may change from turn
+ * to turn. It can be any city for: Prussia in the Berlin spades sector; Hanover
+ * in the Stade diamonds sector, but only north of Munster; Russia in the
+ * Warszawa spades sector; Sweden in Sweden (Sverige), incl. exclaves; Austria in
+ * the Brünn diamonds sector (Austrian territory only); Imperial Army in the
+ * spades sector south of Hildburghausen; France in the hearts sector south of
+ * Koblenz."
+ *
+ * Computed from the sector grid rather than listed, so it stays true to the text.
+ */
+export const SUBSTITUTE_COST = 8; // rule 10b: 6 → 8 points per troop and per train
+
+let substituteCache: Record<Nation, readonly NodeId[]> | null = null;
+
+export function substituteSites(nation: Nation): readonly NodeId[] {
+  if (!substituteCache) {
+    const inSector = (s: number) => new Set(citiesInSector(s));
+    const berlin = inSector(sectorOfCity('berlin'));
+    const stade = inSector(sectorOfCity('stade'));
+    const warszawa = inSector(sectorOfCity('warszawa'));
+    const brunn = inSector(sectorOfCity('brunn'));
+    const franconia = inSector(sectorSouthOf('hildburghausen', 'spades'));
+    const rhineMain = inSector(sectorSouthOf('koblenz', 'hearts'));
+    // "only north of Munster" — the board's y grows southwards
+    const munsterY = friedrichMap.nodes.get('munster-36')!.y;
+    const homeOf = (n: Nation) => (id: NodeId) => friedrichMap.nodes.get(id)?.home === n;
+    const pick = (ids: Iterable<NodeId>, keep: (id: NodeId) => boolean = () => true) => [...ids].filter(keep).sort();
+
+    substituteCache = {
+      prussia: pick(berlin),
+      hanover: pick(stade, (id) => friedrichMap.nodes.get(id)!.y < munsterY),
+      russia: pick(warszawa),
+      sweden: pick(friedrichMap.nodes.keys(), homeOf('sweden')),
+      austria: pick(brunn, homeOf('austria')),
+      imperial: pick(franconia),
+      france: pick(rhineMain),
+    };
+  }
+  return substituteCache[nation];
+}
 
 /** How far a supply line can be traced (in cities). */
 export const SUPPLY_RANGE = 6;

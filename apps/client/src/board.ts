@@ -23,7 +23,7 @@ import {
   NATION_OF_ROLE,
   HIDDEN_TROOPS,
   ATTACKER_NATIONS,
-  DEPOT_CITIES,
+  reentrySites,
   objectiveProgress,
   isEased,
   areEnemies,
@@ -566,11 +566,14 @@ function recruitBox(): string {
   const nation = activeNation();
   const hand = (state.hands[nation] ?? []).filter((c) => c.kind === 'suit');
   const paid = hand.filter((c) => recruit.cards.has(c.id)).reduce((n, c) => n + (c.kind === 'suit' ? c.value : 0), 0);
-  const cost = (recruit.troops + recruit.trains) * 6;
+  // every depot blocked → re-enter in the substitute region, at 8 instead of 6
+  const { sites, cost: unitCost } = reentrySites(state, nation);
+  const substituting = unitCost > 6;
+  const cost = (recruit.troops + recruit.trains) * unitCost;
   const lost = Object.values(state.offMap).filter((g) => g.nation === nation);
   const onMap = Object.values(state.pieces).filter((p) => p.nation === nation).sort((a, b) => a.rank - b.rank);
   const trainsLost = state.offMapTrains[nation] ?? 0;
-  const depots = DEPOT_CITIES[nation] ?? [];
+  const depots = sites;
 
   const targets = [
     ...onMap.map((p) => `<option value="reinforce:${p.id}">Reinforce ${p.id} (${p.troops === HIDDEN_TROOPS ? '?' : p.troops}) at ${friedrichMap.nodes.get(p.node)?.name}</option>`),
@@ -587,14 +590,17 @@ function recruitBox(): string {
 
   return `<div id="recruit-box">
     <h3>Recruitment</h3>
-    <p class="sub">Tactical Cards are spent as money — <b>6 points</b> per troop and per supply train.
+    <p class="sub">Tactical Cards are spent as money — <b>${unitCost} points</b> per troop and per supply train.
     A returning general is free but must receive at least one troop. No change is given for overpayment.</p>
+    ${substituting ? `<p class="sub" style="color:#d9b26a">Every one of your depot cities is held by another
+      player, so pieces must re-enter at a <b>substitute site</b> of your choice in your home sector — and
+      everything costs <b>8</b> instead of 6 until your depots are free.</p>` : ''}
     <div class="rec-row"><span>Troops</span>
       <button class="gb" data-rec="t-">−</button><b class="rec-n">${recruit.troops}</b><button class="gb" data-rec="t+">+</button></div>
     <div class="rec-row"><span>Give to</span><select id="rec-target">${targets || '<option value="">— nobody available —</option>'}</select></div>
     ${trainsLost > 0 ? `<div class="rec-row"><span>Supply trains <small>(${trainsLost} lost)</small></span>
       <button class="gb" data-rec="s-">−</button><b class="rec-n">${recruit.trains}</b><button class="gb" data-rec="s+">+</button></div>` : ''}
-    <div class="rec-row"><span>Depot <small>(for returning pieces)</small></span>
+    <div class="rec-row"><span>${substituting ? 'Substitute site' : 'Depot'} <small>(for returning pieces)</small></span>
       <select id="rec-depot">${depots.map((d) => `<option value="${d}">${friedrichMap.nodes.get(d)?.name ?? d}</option>`).join('')}</select></div>
     <div class="rec-cards"><div class="sub" style="margin:6px 0 4px">Click cards to spend them:</div><div class="hand-cards">${cards}</div></div>
     <div class="rec-total ${paid >= cost && cost > 0 ? 'ok' : ''}">Cost <b>${cost}</b> · Paying <b>${paid}</b>${paid > cost && cost > 0 ? ` <small>(${paid - cost} lost)</small>` : ''}</div>

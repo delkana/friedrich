@@ -24,6 +24,8 @@ import {
   TRAIN_MOVE,
   TRAIN_MOVE_MAIN,
   RECRUIT_COST,
+  SUBSTITUTE_COST,
+  substituteSites,
   TROOP_MAX,
   DEPOT_CITIES,
   areEnemies,
@@ -641,16 +643,28 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         if (troops < 0 || wantTrains < 0 || (troops === 0 && wantTrains === 0)) {
           throw new IllegalActionError('Nothing to recruit.');
         }
-        // a depot is only needed for pieces actually re-entering
+        // with every depot blocked by another player, the nation names a
+        // substitute re-entry site instead — and everything costs 8, not 6 (§10)
+        const { sites, cost: unitCost } = reentrySites(state, nation);
+        const substituting = unitCost === SUBSTITUTE_COST;
+
+        // a re-entry site is only needed for pieces actually re-entering
         const needsDepot = !!action.generalId || wantTrains > 0;
         if (needsDepot) {
-          if (!action.node || !DEPOT_CITIES[nation].includes(action.node)) {
-            throw new IllegalActionError('Pieces may only re-enter at one of your depot cities.');
+          if (!action.node || !sites.includes(action.node)) {
+            throw new IllegalActionError(
+              substituting
+                ? 'All your depots are blocked — re-enter at a city in your substitute region.'
+                : 'Pieces may only re-enter at one of your depot cities.',
+            );
           }
         }
         const there = action.node ? piecesAtNode(state.pieces, action.node) : [];
         if (needsDepot && there.some((p) => p.nation !== nation)) {
-          throw new IllegalActionError('Another nation holds that depot.');
+          throw new IllegalActionError('Another nation holds that city.');
+        }
+        if (needsDepot && Object.values(state.trains).some((t) => t.node === action.node && t.nation !== nation)) {
+          throw new IllegalActionError('Another nation holds that city.');
         }
 
         // troop establishment ceiling
@@ -682,14 +696,18 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         if (paying.some((c) => !c)) throw new IllegalActionError('You do not hold those cards.');
         if (paying.some((c) => c!.kind === 'reserve')) throw new IllegalActionError('A Reserve cannot be spent as money.');
         const paid = paying.reduce((n, c) => n + (c!.kind === 'suit' ? c!.value : 0), 0);
-        const cost = (troops + wantTrains) * RECRUIT_COST;
+        // the surcharge applies to everything the nation recruits while cut off
+        // from its depots, "even if the troop is not given to a re-entering general"
+        const cost = (troops + wantTrains) * unitCost;
         if (paid < cost) throw new IllegalActionError(`That costs ${cost} points of Tactical Cards; you offered ${paid}.`);
 
         const spent = new Set(cardIds);
         const hands = { ...state.hands, [nation]: state.hands[nation].filter((c) => !spent.has(c.id)) };
         const playedSets = setAside(state.playedSets, paying.map((c) => c!));
         const where = action.node ? friedrichMap.nodes.get(action.node)?.name ?? action.node : '';
-        const log = [`${nation} recruits ${troops} troop(s)${wantTrains ? ` and ${wantTrains} supply train(s)` : ''} for ${cost} points (paid ${paid}).`];
+        const log = [
+          `${properName(nation)} recruits ${troops} troop(s)${wantTrains ? ` and ${wantTrains} supply train(s)` : ''} for ${cost} points (paid ${paid})${substituting ? ' — at the blocked-depot rate of 8' : ''}.`,
+        ];
 
         const pieces = { ...state.pieces };
         const offMap = { ...state.offMap };
@@ -904,6 +922,37 @@ export function nationsControlledBy(state: FriedrichState, viewer: PlayerId): Se
 }
 
 /** The nation an action must be entitled to act as (for authorization). */
+/** The seat that plays a nation (a role can hold two, e.g. Prussia + Hanover). */
+function playerOf(state: FriedrichState, nation: Nation): PlayerId | null {
+  for (const [player, roles] of Object.entries(state.seats)) {
+    for (const role of roles) if (NATION_OF_ROLE[role].includes(nation)) return player;
+  }
+  return null;
+}
+
+/**
+ * Rule 10a's trigger: "Should all of a nation's depot cities be occupied by
+ * pieces from ANOTHER PLAYER". Pieces you control yourself don't count — you
+ * could always march them out of the way — so a depot held by your own other
+ * nation blocks re-entry without earning you a substitute site.
+ */
+export function depotsBlocked(state: FriedrichState, nation: Nation): boolean {
+  const mine = playerOf(state, nation);
+  const foreign = (owner: Nation) => mine === null || playerOf(state, owner) !== mine;
+  return DEPOT_CITIES[nation].every(
+    (depot) =>
+      Object.values(state.pieces).some((p) => p.node === depot && foreign(p.nation)) ||
+      Object.values(state.trains).some((t) => t.node === depot && foreign(t.nation)),
+  );
+}
+
+/** Where `nation` may bring pieces back this turn, and what a troop costs there. */
+export function reentrySites(state: FriedrichState, nation: Nation): { sites: readonly string[]; cost: number } {
+  return depotsBlocked(state, nation)
+    ? { sites: substituteSites(nation), cost: SUBSTITUTE_COST } // rule 10b
+    : { sites: DEPOT_CITIES[nation], cost: RECRUIT_COST };
+}
+
 export function requiredNation(state: FriedrichState, action: FriedrichAction): Nation | null {
   if (action.type === 'ping') return null;
   if (action.type === 'allotTroops') return action.nation; // you may only raise your own armies
