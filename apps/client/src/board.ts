@@ -70,6 +70,15 @@ const NATION_LABEL: Record<Nation, string> = {
 const BOARD_W = 6000;
 const BOARD_H = 4000;
 
+/** How many dispatches the log panel keeps for scrolling back over. */
+const LOG_LINES = 100;
+/**
+ * Whether the log follows the newest dispatch. Only the reader's own scrolling
+ * changes it: geometry alone can't tell "scrolled back to read" from "not
+ * scrolled yet", and the panel is hidden during set-up, where it measures zero.
+ */
+let logFollow = true;
+
 // ---- state ---------------------------------------------------------------
 
 /**
@@ -1006,9 +1015,13 @@ function renderChrome(): void {
     youTag.textContent = `Hotseat · ${NATION_LABEL[nation]}: ${state.hands[nation]?.length ?? 0} cards`;
   }
 
+  // A hundred dispatches of scrollback — enough to look back over a few turns.
+  // Rewriting the list drops the scroll position, so put it back: follow the
+  // newest line, or hold the reader where they were reading.
   const log = document.getElementById('log-list')!;
-  log.innerHTML = state.log.slice(-14).map((l) => `<li>${l}</li>`).join('');
-  log.scrollTop = log.scrollHeight;
+  const wasAt = log.scrollTop;
+  log.innerHTML = state.log.slice(-LOG_LINES).map((l) => `<li>${l}</li>`).join('');
+  log.scrollTop = logFollow ? log.scrollHeight : wasAt;
 
   const inSetup = state.phase === 'setup' && !state.winner;
   const myTurn = canControl(nation) && !inSetup && !state.pendingDiscard && !state.pendingRetreat;
@@ -1397,6 +1410,12 @@ function mount(): void {
   });
   setupEl.addEventListener('mouseleave', () => {
     if (allotHover) { allotHover = null; renderMap(); renderChrome(); }
+  });
+  // scroll back through the dispatches and the log stops chasing the newest
+  // line; return to the bottom and it picks the thread up again
+  const logEl = document.getElementById('log-list')!;
+  logEl.addEventListener('scroll', () => {
+    logFollow = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
   });
   document.getElementById('map-view')!.addEventListener('contextmenu', onBoardContextMenu);
   document.getElementById('hud')!.addEventListener('click', onHudClick);
