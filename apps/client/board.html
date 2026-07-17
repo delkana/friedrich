@@ -102,6 +102,12 @@
       .piece.facedown circle { opacity: .5; }
       .piece.facedown .ptext { opacity: .6; }
       .piece { cursor: pointer; }
+      /* During set-up the army being raised stands out, and the general whose row
+         you are hovering is picked out of it. These widths are in board units on
+         a view zoomed out to hold a whole army, hence the big numbers. */
+      .piece.raising .ring { stroke: var(--gold); stroke-width: 18; }
+      .piece.allot-focus .ring { stroke: #fff6dc; stroke-width: 40; }
+      .piece.allot-focus { filter: drop-shadow(0 0 60px #ffe9a8) drop-shadow(0 0 24px #ffe9a8); }
       .piece circle { stroke: #1c140a; stroke-width: 5; }
       .piece.sel circle { stroke: #e8c24a !important; stroke-width: 11; }
       .piece.target circle { stroke: #d64a3f !important; stroke-width: 11; }
@@ -123,6 +129,7 @@
       /* left column: dispatches + selected army, stacked so they never overlap */
       #left-col { position: absolute; left: 14px; top: 14px; width: 296px;
         display: flex; flex-direction: column; gap: 10px; max-height: calc(100% - 215px); }
+      #left-col[hidden] { display: none; } /* the explicit display above outranks [hidden] */
       #left-col .panel { position: static; width: auto; opacity: .96; }
       #log-panel { display: flex; flex-direction: column; max-height: 30vh; min-height: 0; }
       #log-list { margin: 0; padding: 8px 14px 12px; list-style: none; overflow-y: auto; font-size: 13px; }
@@ -209,6 +216,15 @@
       .modal { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
         background: radial-gradient(80% 80% at 50% 45%, #0009, #000d); z-index: 20; overflow: auto; padding: 20px; }
       .modal.show { display: flex; }
+      /* set-up docks to the left: the board stays visible and pannable while you
+         decide which armies to make strong. The id beats `#hud > *`, which would
+         otherwise re-enable pointer events and swallow the map. */
+      #setup-overlay.side { pointer-events: none; align-items: center; justify-content: flex-start; padding: 8px;
+        background: linear-gradient(90deg, #00000066 0%, #0000002b 34%, #0000 52%); }
+      #setup-overlay.side > * { pointer-events: auto; }
+      #setup-overlay.side #setup-box { width: min(370px, 92vw); padding: 4px 14px 14px; }
+      #setup-overlay.side #setup-box h3 { font-size: 17px; letter-spacing: 2px; margin: 10px 0 4px; }
+      #setup-overlay.side .setup-row { font-size: 13px; padding: 5px 0; }
       #recruit-box, #help-box, #setup-box { width: min(640px, 94vw); max-height: 90vh; overflow: auto; padding: 6px 20px 18px;
         background: linear-gradient(#211a10, #17110a); border: 1px solid #5a4a24; border-radius: 6px; box-shadow: 0 20px 60px #000d; }
       #help-box { width: min(760px, 94vw); }
@@ -223,6 +239,8 @@
       .setup-row .nm { min-width: 0; }
       .setup-row small { color: var(--muted); }
       .setup-row .gb { padding: 3px 10px; }
+      .setup-row.hot { background: #ffffff0e; box-shadow: inset 3px 0 0 var(--gold); }
+      .setup-row.hot .nm { color: var(--gold); }
       .rec-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0;
         border-bottom: 1px dashed #ffffff10; font-size: 14px; }
       .rec-row small { color: var(--muted); }

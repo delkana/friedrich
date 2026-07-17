@@ -77,6 +77,10 @@ const recruit = { troops: 0, trains: 0, cards: new Set<string>() };
 const allotDraft: Partial<Record<Nation, Record<string, number>>> = {};
 /** Which of your nations the set-up screen is currently showing. */
 let allotNation: Nation | null = null;
+/** The general whose row the cursor is over during set-up — picked out on the map. */
+let allotHover: string | null = null;
+/** The army the map is currently framed on, so we only re-frame on a change. */
+let allotFramed: Nation | null = null;
 const view = { x: 0, y: 0, w: BOARD_W, h: BOARD_H }; // viewBox
 
 // networking
@@ -249,20 +253,37 @@ function boardInner(): string {
     })
     .join('');
 
+  // while raising an army, the board shows the troops you are assigning — the
+  // counters count up and down with the steppers, so you can see the shape of
+  // your line as you build it
+  const allot = allotFocus();
+  // set-up frames a whole army, which can span half of Europe, so the board is
+  // zoomed well out — fatten the counters to keep the troop numbers readable
+  const k = allot ? 2.2 : 1;
+
   const pieces = [...friedrichMap.nodes.values()]
     .flatMap((n) => piecesAt(n.id).map((p, i) => {
-      const px = n.x + 54;
-      const py = n.y - 30 + i * 46;
+      const px = n.x + 54 * k;
+      const py = n.y - 30 * k + i * 46 * k;
       const canSelect = p.nation === activeNation() && canControl(p.nation) && !state.combat;
       const isTarget = sel && areEnemies(sel.nation, p.nation) && areAdjacent(friedrichMap, sel.node, p.node);
-      const cls = [p.id === selected ? 'sel' : '', isTarget ? 'target' : '', p.faceUp ? '' : 'facedown'].join(' ');
-      const troops = p.troops === HIDDEN_TROOPS ? '?' : String(p.troops);
-      const cut = p.faceUp ? '' : `<circle cx="${px + 22}" cy="${py - 22}" r="10" fill="#9e2b25" stroke="#1c140a" stroke-width="3"/>`;
+      const raising = allot && p.nation === allot.nation;
+      const cls = [
+        p.id === selected ? 'sel' : '',
+        isTarget ? 'target' : '',
+        p.faceUp ? '' : 'facedown',
+        raising ? 'raising' : '',
+        p.id === allotHover ? 'allot-focus' : '',
+      ].join(' ');
+      const troops = raising
+        ? String(allot.draft[p.id] ?? 0)
+        : p.troops === HIDDEN_TROOPS ? '?' : String(p.troops);
+      const cut = p.faceUp ? '' : `<circle cx="${px + 22 * k}" cy="${py - 22 * k}" r="${10 * k}" fill="#9e2b25" stroke="#1c140a" stroke-width="3"/>`;
       return `<g class="piece ${cls}" data-piece="${p.id}" style="${canSelect || isTarget ? '' : 'cursor:default'}">
-        <circle cx="${px}" cy="${py}" r="52" fill="none" pointer-events="all"/>
-        <circle class="ring" cx="${px}" cy="${py}" r="34"/>
-        <circle cx="${px}" cy="${py}" r="25" fill="${NATION_COLOR[p.nation]}"/>
-        <text class="ptext" x="${px}" y="${py + 11}">${troops}</text>${cut}</g>`;
+        <circle cx="${px}" cy="${py}" r="${52 * k}" fill="none" pointer-events="all"/>
+        <circle class="ring" cx="${px}" cy="${py}" r="${34 * k}"/>
+        <circle cx="${px}" cy="${py}" r="${25 * k}" fill="${NATION_COLOR[p.nation]}"/>
+        <text class="ptext" x="${px}" y="${py + 11 * k}" style="font-size:${30 * k}px">${troops}</text>${cut}</g>`;
     }))
     .join('');
 
@@ -281,6 +302,45 @@ function applyView(): void {
     return;
   }
   boardSvg().setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
+}
+
+/**
+ * Frame a set of cities, keeping them clear of a panel covering `leftInset`
+ * pixels of the pane. Used at set-up so the army you are raising is actually on
+ * screen instead of hiding behind the dialog.
+ */
+function focusCities(ids: readonly string[], leftInset: number): void {
+  const pts = ids.map((id) => friedrichMap.nodes.get(id)).filter((n): n is NonNullable<typeof n> => !!n);
+  if (!pts.length) return;
+  const r = mapView().getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) { requestAnimationFrame(() => focusCities(ids, leftInset)); return; }
+
+  const pad = 620; // board units — room for the counters and their labels
+  const x0 = Math.min(...pts.map((p) => p.x)) - pad;
+  const x1 = Math.max(...pts.map((p) => p.x)) + pad;
+  const y0 = Math.min(...pts.map((p) => p.y)) - pad;
+  const y1 = Math.max(...pts.map((p) => p.y)) + pad;
+
+  // the cities have to land in the pane MINUS the panel, so they must fit across
+  // only that fraction of the viewBox
+  const freeFrac = Math.max(0.25, (r.width - leftInset) / r.width);
+  const ar = r.width / r.height;
+  let w = Math.max((x1 - x0) / freeFrac, (y1 - y0) * ar);
+  // an army can span half of Europe (Prussia reaches from Saxony to East
+  // Prussia); on a narrow pane framing it exactly would zoom out absurdly far,
+  // so cap the zoom and accept that an edge may tuck under the panel
+  w = Math.min(w, BOARD_W * 1.35);
+  const h = w / ar;
+
+  // put the cities in the middle of the free strip: screen-centre it at
+  // (paneWidth + leftInset) / 2 rather than paneWidth / 2
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  view.w = w;
+  view.h = h;
+  view.x = cx - (w * (r.width + leftInset)) / (2 * r.width);
+  view.y = cy - h / 2;
+  applyView();
 }
 
 function fitView(): void {
@@ -626,6 +686,19 @@ function draftFor(nation: Nation): Record<string, number> {
   return allotDraft[nation]!;
 }
 
+/**
+ * The army currently being raised, and the troops being assigned to it. The map
+ * and the set-up panel both read this, so the counters on the board always show
+ * the same numbers as the steppers.
+ */
+function allotFocus(): { nation: Nation; draft: Record<string, number> } | null {
+  if (state.phase !== 'setup' || state.winner) return null;
+  const waiting = nationsToAllot();
+  if (!waiting.length) return null;
+  if (!allotNation || !waiting.includes(allotNation)) allotNation = waiting[0]!;
+  return { nation: allotNation, draft: draftFor(allotNation) };
+}
+
 /** Nudge a general's troops, keeping the nation's total at its establishment. */
 function bumpAllot(nation: Nation, id: string, delta: number): void {
   const draft = { ...draftFor(nation) };
@@ -634,6 +707,7 @@ function bumpAllot(nation: Nation, id: string, delta: number): void {
   if (next < TROOP_PER_GENERAL_MIN || next > max) return;
   draft[id] = next;
   allotDraft[nation] = draft;
+  renderMap(); // the counters on the board track the steppers
   renderChrome();
 }
 
@@ -646,9 +720,7 @@ function setupBox(): string {
       <p class="sub">Your armies are ready. Waiting for ${others.join(', ')} to be raised…</p>
     </div>`;
   }
-  if (!allotNation || !waiting.includes(allotNation)) allotNation = waiting[0]!;
-  const nation = allotNation;
-  const draft = draftFor(nation);
+  const { nation, draft } = allotFocus()!;
   const generals = Object.values(state.pieces).filter((p) => p.nation === nation).sort((a, b) => a.rank - b.rank);
   const spent = Object.values(draft).reduce((a, b) => a + b, 0);
   const establishment = TROOP_MAX[nation];
@@ -669,7 +741,7 @@ function setupBox(): string {
   const rows = generals
     .map((g) => {
       const n = draft[g.id] ?? 0;
-      return `<div class="setup-row">
+      return `<div class="setup-row ${g.id === allotHover ? 'hot' : ''}" data-general="${g.id}">
         <span class="nm">${GENERAL_NAME[g.id] ?? g.id} <small>· rank ${g.rank} · ${friedrichMap.nodes.get(g.node)?.name ?? g.node}</small></span>
         <button class="gb" data-setup="minus:${g.id}" ${n <= TROOP_PER_GENERAL_MIN ? 'disabled' : ''}>−</button>
         <b class="rec-n">${n}</b>
@@ -682,8 +754,9 @@ function setupBox(): string {
     <h3>Raise the Army of ${NATION_LABEL[nation]}</h3>
     ${youAre}
     <p class="sub">Split this nation's establishment of <b>${establishment} troops</b> among its generals —
-      at least <b>1</b> each, at most <b>${max}</b>. Your generals' strengths stay <b>secret</b> from your enemies,
-      so a weak-looking flank may be a trap — or a real weakness.</p>
+      at least <b>1</b> each, at most <b>${max}</b>. The counters on the map count with you, so you can see
+      which front you are massing on; hover a general to find him. Their strengths stay <b>secret</b> from
+      your enemies, so a weak-looking flank may be a trap — or a real weakness.</p>
     ${tabs}
     ${rows}
     <div class="rec-total ${left === 0 ? 'ok' : ''}">Establishment <b>${establishment}</b> · Allotted <b>${spent}</b>${
@@ -813,6 +886,9 @@ function renderChrome(): void {
 
   // player-knowledge panels (hidden behind the battle and set-up dialogs, which cover them)
   const covered = !!state.combat || inSetup;
+  // the set-up panel docks over the left column; its own tabs already say which
+  // armies are still to raise, so the log has nothing to add there
+  (document.getElementById('left-col') as HTMLElement).hidden = inSetup;
   const handEl = document.getElementById('hand-panel') as HTMLElement;
   const handHtml = handPanel();
   handEl.innerHTML = handHtml;
@@ -835,10 +911,26 @@ function renderChrome(): void {
   if (recruitOpen && !state.combat) { rec.classList.add('show'); rec.innerHTML = recruitBox(); }
   else { rec.classList.remove('show'); rec.innerHTML = ''; }
 
+  // set-up docks to the side, leaving the board visible and pannable — you are
+  // deciding where to mass troops, so you need to see the ground. The discard
+  // is a plain modal; there is nothing on the map to consult.
   const setupEl = document.getElementById('setup-overlay')!;
+  setupEl.classList.toggle('side', inSetup);
   if (inSetup) { setupEl.classList.add('show'); setupEl.innerHTML = setupBox(); }
   else if (state.pendingDiscard) { setupEl.classList.add('show'); setupEl.innerHTML = discardBox(); }
   else { setupEl.classList.remove('show'); setupEl.innerHTML = ''; }
+
+  // swing the map onto the army being raised — otherwise it may sit behind the
+  // panel, which rather defeats the point. Only on a change, so panning sticks.
+  const raising = inSetup ? allotFocus() : null;
+  if (raising?.nation !== allotFramed) {
+    allotFramed = raising?.nation ?? null;
+    if (raising) {
+      const box = setupEl.querySelector('#setup-box')?.getBoundingClientRect();
+      const cities = Object.values(state.pieces).filter((p) => p.nation === raising.nation).map((p) => p.node);
+      focusCities(cities, (box?.right ?? 0) - (box?.left ?? 0) + 24);
+    }
+  }
 
   const help = document.getElementById('help-overlay')!;
   if (helpOpen) { help.classList.add('show'); help.innerHTML = HELP_HTML; }
@@ -883,6 +975,9 @@ function renderMap(): void {
 function onBoardClick(e: Event): void {
   if (state.combat) return;
   const target = e.target as Element;
+
+  // during set-up the board is for looking at, not moving on
+  if (state.phase === 'setup') return;
 
   // settling a retreat: the only thing you can do is name one of the offered cities
   if (state.pendingRetreat) {
@@ -974,10 +1069,10 @@ function onSetupClick(cmd: string): void {
   const nation = allotNation;
   if (!nation) return;
   const [verb, arg] = cmd.split(':');
-  if (verb === 'tab') { allotNation = arg as Nation; renderChrome(); return; }
+  if (verb === 'tab') { allotNation = arg as Nation; allotHover = null; renderMap(); renderChrome(); return; }
   if (verb === 'plus') return bumpAllot(nation, arg!, 1);
   if (verb === 'minus') return bumpAllot(nation, arg!, -1);
-  if (verb === 'even') { allotDraft[nation] = suggestAllotment(state, nation); renderChrome(); return; }
+  if (verb === 'even') { allotDraft[nation] = suggestAllotment(state, nation); renderMap(); renderChrome(); return; }
   if (verb === 'go') {
     // clear the selection FIRST: dispatch re-renders, and setupBox picks the next
     // unraised nation for us — nulling it afterwards would undo that choice
@@ -1119,10 +1214,24 @@ function mount(): void {
   root.addEventListener('mouseover', (e) => {
     const el = (e.target as Element).closest('[data-piece]');
     const id = el?.getAttribute('data-piece') ?? null;
-    if (id !== hovered) { hovered = id; renderChrome(); }
+    if (id === hovered) return;
+    hovered = id;
+    // during set-up the highlight runs both ways: hovering a counter on the map
+    // picks out its row in the panel
+    if (state.phase === 'setup') { allotHover = id; renderMap(); }
+    renderChrome();
   });
   root.addEventListener('mouseout', (e) => {
     if ((e.target as Element).closest('[data-piece]') && hovered) { hovered = null; renderChrome(); }
+  });
+  // hovering a general's row in the set-up panel picks him out on the map
+  const setupEl = document.getElementById('setup-overlay')!;
+  setupEl.addEventListener('mouseover', (e) => {
+    const id = (e.target as Element).closest('[data-general]')?.getAttribute('data-general') ?? null;
+    if (id !== allotHover) { allotHover = id; renderMap(); renderChrome(); }
+  });
+  setupEl.addEventListener('mouseleave', () => {
+    if (allotHover) { allotHover = null; renderMap(); renderChrome(); }
   });
   document.getElementById('map-view')!.addEventListener('contextmenu', onBoardContextMenu);
   document.getElementById('hud')!.addEventListener('click', onHudClick);
