@@ -1,11 +1,14 @@
 /**
  * Networked end-to-end check: start the real server, connect 3 clients, join a
- * room, and verify hidden-information redaction + turn authorization over ws.
+ * room, take every nation through the set-up allotment, and verify
+ * hidden-information redaction + turn authorization over ws.
  */
 process.env.PORT = '8899';
 await import('../apps/server/dist/index.js'); // starts http+ws on 8899
 
 import { WebSocket } from 'ws';
+import { suggestAllotment, NATION_OF_ROLE, NATION_ORDER } from '../packages/friedrich/dist/index.js';
+
 const URL = 'ws://localhost:8899';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -25,40 +28,66 @@ let failed = false;
 const assert = (cond, label) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}`); if (!cond) failed = true; };
 const troopsOf = (view, id) => view?.pieces?.[id]?.troops;
 
-const a = client('Fred');   // seat 0 → Frederick (Prussia+Hanover)
-const b = client('Theresa');// seat 1 → Maria Theresa (Austria+Imperial)
-const c = client('Liz');    // seat 2 → Elisabeth+Pompadour (Russia+Sweden+France)
-await Promise.all([a.ready, b.ready, c.ready]);
-
-a.send({ t: 'join', room: 'test', name: 'Fred' });
-b.send({ t: 'join', room: 'test', name: 'Theresa' });
-c.send({ t: 'join', room: 'test', name: 'Liz' });
+const clients = [client('Fred'), client('Theresa'), client('Liz')];
+await Promise.all(clients.map((c) => c.ready));
+for (const c of clients) c.send({ t: 'join', room: 'test', name: c.st.name });
 await wait(200);
 
-assert(a.st.view && b.st.view && c.st.view, 'all three received state');
-assert(a.st.view.version === 0, 'game started');
+assert(clients.every((c) => c.st.view), 'all three received state');
+assert(clients[0].st.view.version === 0, 'game started');
+assert(clients[0].st.view.phase === 'setup', 'a new game opens with the armies unraised');
+
+/** The nations a client controls, per the raffled seating the server dealt. */
+const nationsOf = (c) => (c.st.view.seats[c.st.playerId] ?? []).flatMap((r) => NATION_OF_ROLE[r]);
+const owner = (nation) => clients.find((c) => nationsOf(c).includes(nation));
+
+assert(
+  NATION_ORDER.every((n) => owner(n)),
+  'the raffle dealt every nation to a seat',
+);
+
+// set-up: each player secretly allots their nations' establishments
+for (const c of clients) {
+  for (const nation of nationsOf(c)) {
+    c.send({ t: 'action', action: { type: 'allotTroops', nation, alloc: suggestAllotment(c.st.view, nation) } });
+    await wait(40);
+  }
+}
+await wait(150);
+assert(clients[0].st.view.phase === 'war', 'the war begins once every nation is raised');
+
+const fred = owner('prussia');
+const theresa = owner('austria');
+const other = clients.find((c) => c !== fred && c !== theresa);
 
 // redaction: each player sees their OWN troops, enemies are hidden (-1)
-assert(troopsOf(a.st.view, 'friedrich') > 0, 'Fred sees his own Prussian troops');
-assert(troopsOf(b.st.view, 'friedrich') === -1, "Theresa cannot see Prussia's troops");
-assert(troopsOf(b.st.view, 'daun') > 0, 'Theresa sees her own Austrian troops');
-assert(troopsOf(a.st.view, 'daun') === -1, "Fred cannot see Austria's troops");
-assert(a.st.view.hands.prussia.length === 7 && a.st.view.hands.austria.length === 0, "Fred sees his own drawn hand, not Austria's");
-assert(b.st.view.hands.austria.length === 0 && b.st.view.hands.prussia.length === 0, "Theresa sees no hidden hands (Austria draws on its own stage)");
+assert(troopsOf(fred.st.view, 'friedrich') > 0, 'Prussia\'s player sees his own troops');
+assert(troopsOf(theresa.st.view, 'friedrich') === -1, "Austria's player cannot see Prussia's troops");
+assert(troopsOf(theresa.st.view, 'daun') > 0, 'Austria\'s player sees her own troops');
+assert(troopsOf(fred.st.view, 'daun') === -1, "Prussia's player cannot see Austria's troops");
+assert(
+  fred.st.view.hands.prussia.length === 7 && fred.st.view.hands.austria.length === 0,
+  "Prussia sees its own drawn hand, not Austria's",
+);
+assert(
+  theresa.st.view.hands.austria.length === 0 && theresa.st.view.hands.prussia.length === 0,
+  'Austria sees no hidden hands (it draws on its own stage)',
+);
 
 // authorization: it is Prussia's stage (index 0)
-b.send({ t: 'action', action: { type: 'move', pieceId: 'keith', to: 'meissen' } }); // Theresa can't move Prussia
+theresa.send({ t: 'action', action: { type: 'move', pieceId: 'friedrich', to: 'meissen' } });
 await wait(120);
-assert(b.st.errors.some((e) => /not your turn/i.test(e)), 'Theresa is refused acting on Prussia\'s turn');
-assert(a.st.view.pieces['keith'].node === 'dresden', 'board unchanged by the refused action');
+assert(theresa.st.errors.some((e) => /not your turn/i.test(e)), "Austria is refused acting on Prussia's turn");
+assert(fred.st.view.pieces['friedrich'].node === 'dresden', 'board unchanged by the refused action');
 
-a.send({ t: 'action', action: { type: 'move', pieceId: 'keith', to: 'meissen' } }); // Fred may
+const before = fred.st.view.version;
+fred.send({ t: 'action', action: { type: 'move', pieceId: 'friedrich', to: 'meissen' } });
 await wait(120);
-assert(a.st.view.pieces['keith'].node === 'meissen', 'Fred moved Keith');
-assert(c.st.view.pieces['keith'].node === 'meissen', 'Liz received the synced board update');
-assert(a.st.view.version === 1, 'version advanced');
+assert(fred.st.view.pieces['friedrich'].node === 'meissen', 'Prussia moved Friedrich');
+assert(other.st.view.pieces['friedrich'].node === 'meissen', 'the third player received the synced board update');
+assert(fred.st.view.version === before + 1, 'version advanced');
 
-a.ws.close(); b.ws.close(); c.ws.close();
+for (const c of clients) c.ws.close();
 await wait(50);
 console.log(failed ? '\nNET SMOKE FAILED' : '\nNET SMOKE OK');
 process.exit(failed ? 1 : 0);

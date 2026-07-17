@@ -12,11 +12,14 @@ import {
   type GameDefinition,
   type PlayerId,
   type TacticalCard,
+  type RngState,
 } from '@friedrich/engine';
 import { NATION_ORDER, BASE_DRAW, type Role, type Nation } from './powers.js';
 import {
-  INITIAL_PIECES,
+  ALL_GENERALS,
   INITIAL_TRAINS,
+  TROOP_PER_GENERAL_MAX,
+  TROOP_PER_GENERAL_MIN,
   MAX_STACK,
   TRAIN_MOVE,
   TRAIN_MOVE_MAIN,
@@ -38,16 +41,23 @@ type PieceMap = Record<string, Piece>;
 
 // ---- helpers -------------------------------------------------------------
 
-function assignSeats(players: readonly PlayerId[]): Record<PlayerId, Role[]> {
-  const seatRoles: Role[][] =
+/**
+ * "Using the Tactical Cards 13,13,13,13, the roles of Friedrich, Elisabeth,
+ * Maria Theresa and Pompadour are raffled to the players." — so the roles are
+ * dealt at random, not by seat order. At three players one seat runs both
+ * Elisabeth and Pompadour.
+ */
+function assignSeats(players: readonly PlayerId[], rng: RngState): { seats: Record<PlayerId, Role[]>; rng: RngState } {
+  const groups: Role[][] =
     players.length === 3
       ? [['frederick'], ['mariaTheresa'], ['elisabeth', 'pompadour']]
       : [['frederick'], ['mariaTheresa'], ['elisabeth'], ['pompadour']];
+  const raffle = rngShuffle(rng, groups);
   const seats: Record<PlayerId, Role[]> = {};
   players.forEach((p, i) => {
-    seats[p] = seatRoles[i]!;
+    seats[p] = raffle.items[i]!;
   });
-  return seats;
+  return { seats, rng: raffle.r };
 }
 
 const activeNationOf = (s: FriedrichState): Nation => NATION_ORDER[s.activeNationIndex]!;
@@ -332,16 +342,23 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
     }
     const fate = buildFateDeck(rng);
     rng = fate.rng;
+    // all 24 generals on their set-up cities; troops are allotted by the players
     const pieces: PieceMap = {};
-    for (const p of INITIAL_PIECES) pieces[p.id] = { ...p, faceUp: true };
+    for (const g of ALL_GENERALS) {
+      pieces[g.id] = { id: g.id, nation: g.nation, rank: g.rank, node: g.node, troops: 0, faceUp: true };
+    }
     const trains: Record<string, Train> = {};
     for (const t of INITIAL_TRAINS) trains[t.id] = t;
+    const raffled = assignSeats(players, rng);
+    rng = raffled.rng;
 
     const base: FriedrichState = {
       rng,
       version: 0,
+      phase: 'setup',
+      allocated: [],
       players: [...players],
-      seats: assignSeats(players),
+      seats: raffled.seats,
       turn: 1,
       activeNationIndex: 0,
       pieces,
@@ -359,19 +376,61 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
       fateDeck: fate.deck,
       fateDrawn: [],
       winner: null,
-      log: [`Game created with ${players.length} player(s). Prussia to act.`],
+      log: [`Roles raffled to ${players.length} players. Each nation must now allot its troops.`],
     };
-    // Prussia's stage opens immediately — draw its cards
-    return beginStage(base, NATION_ORDER[0]!);
+    // the war does not begin until every nation's troops are allotted
+    return base;
   },
 
   reducer(state: FriedrichState, action: FriedrichAction): FriedrichState {
     if (state.winner && action.type !== 'ping') {
       throw new IllegalActionError('The war is over.');
     }
+    if (state.phase === 'setup' && action.type !== 'allotTroops' && action.type !== 'ping') {
+      throw new IllegalActionError('The armies are still being raised — allot your troops first.');
+    }
     switch (action.type) {
       case 'ping':
         return { ...state, version: state.version + 1, log: [...state.log, `${action.by}: ${action.note}`] };
+
+      case 'allotTroops': {
+        if (state.phase !== 'setup') throw new IllegalActionError('Troops are allotted only at set-up.');
+        const { nation, alloc } = action;
+        if (state.allocated.includes(nation)) throw new IllegalActionError(`${nation} has already allotted its troops.`);
+
+        const generals = Object.values(state.pieces).filter((p) => p.nation === nation);
+        const ids = new Set(generals.map((g) => g.id));
+        const given = Object.keys(alloc);
+        if (given.length !== ids.size || given.some((id) => !ids.has(id))) {
+          throw new IllegalActionError('Allot troops to exactly this nation\'s generals.');
+        }
+        const perMax = TROOP_PER_GENERAL_MAX[nation];
+        for (const [id, n] of Object.entries(alloc)) {
+          if (!Number.isInteger(n) || n < TROOP_PER_GENERAL_MIN || n > perMax) {
+            throw new IllegalActionError(`Each general must receive ${TROOP_PER_GENERAL_MIN}–${perMax} troops (${id}: ${n}).`);
+          }
+        }
+        const total = Object.values(alloc).reduce((a, b) => a + b, 0);
+        if (total !== TROOP_MAX[nation]) {
+          throw new IllegalActionError(`${nation} must allot all ${TROOP_MAX[nation]} troops (you allotted ${total}).`);
+        }
+
+        const pieces = { ...state.pieces };
+        for (const [id, n] of Object.entries(alloc)) pieces[id] = { ...pieces[id]!, troops: n };
+        const allocated = [...state.allocated, nation];
+        let next: FriedrichState = {
+          ...state,
+          version: state.version + 1,
+          pieces,
+          allocated,
+          log: [...state.log, `${properName(nation)} has raised its army (${total} troops).`],
+        };
+        // once every nation has allotted, the war begins with Prussia's stage
+        if (NATION_ORDER.every((n) => allocated.includes(n))) {
+          next = beginStage({ ...next, phase: 'war', log: [...next.log, 'The armies are in the field — Prussia to act.'] }, NATION_ORDER[0]!);
+        }
+        return next;
+      }
 
       case 'move': {
         if (state.combat) throw new IllegalActionError('Finish the current battle first.');
@@ -735,11 +794,34 @@ export function nationsControlledBy(state: FriedrichState, viewer: PlayerId): Se
 /** The nation an action must be entitled to act as (for authorization). */
 export function requiredNation(state: FriedrichState, action: FriedrichAction): Nation | null {
   if (action.type === 'ping') return null;
+  if (action.type === 'allotTroops') return action.nation; // you may only raise your own armies
   if (action.type === 'combatPlay' || action.type === 'combatPass') {
     if (!state.combat) return null;
     return state.combat.duel.toMove === 'attacker' ? state.combat.attackerNation : state.combat.defenderNation;
   }
   return NATION_ORDER[state.activeNationIndex] ?? null;
+}
+
+/**
+ * A legal default allotment: spread a nation's establishment as evenly as the
+ * per-general min/max allow. Players may adjust before confirming.
+ */
+export function suggestAllotment(state: FriedrichState, nation: Nation): Record<string, number> {
+  const generals = Object.values(state.pieces).filter((p) => p.nation === nation).sort((a, b) => a.rank - b.rank);
+  const perMax = TROOP_PER_GENERAL_MAX[nation];
+  const alloc: Record<string, number> = {};
+  for (const g of generals) alloc[g.id] = TROOP_PER_GENERAL_MIN;
+  let left = TROOP_MAX[nation] - generals.length * TROOP_PER_GENERAL_MIN;
+  // give the strongest commands the extra troops first
+  while (left > 0) {
+    let placed = false;
+    for (const g of generals) {
+      if (left <= 0) break;
+      if (alloc[g.id]! < perMax) { alloc[g.id] = alloc[g.id]! + 1; left--; placed = true; }
+    }
+    if (!placed) break; // establishment exceeds capacity (cannot happen with the real sheet)
+  }
+  return alloc;
 }
 
 /**

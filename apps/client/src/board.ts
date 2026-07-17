@@ -28,6 +28,12 @@ import {
   isEased,
   areEnemies,
   MAX_STACK,
+  suggestAllotment,
+  ALL_GENERALS,
+  TROOP_MAX,
+  TROOP_PER_GENERAL_MAX,
+  TROOP_PER_GENERAL_MIN,
+  ROLE_INFO,
   type FriedrichState,
   type FriedrichAction,
   type Nation,
@@ -66,6 +72,10 @@ let pendingReserve: string | null = null;
 let helpOpen = false;
 let recruitOpen = false;
 const recruit = { troops: 0, trains: 0, cards: new Set<string>() };
+/** Set-up: the allotment the player is composing, per nation (before confirming). */
+const allotDraft: Partial<Record<Nation, Record<string, number>>> = {};
+/** Which of your nations the set-up screen is currently showing. */
+let allotNation: Nation | null = null;
 const view = { x: 0, y: 0, w: BOARD_W, h: BOARD_H }; // viewBox
 
 // networking
@@ -584,6 +594,91 @@ function recruitBox(): string {
   </div>`;
 }
 
+// ---- set-up: secret troop allotment --------------------------------------
+
+const GENERAL_NAME: Record<string, string> = Object.fromEntries(ALL_GENERALS.map((g) => [g.id, g.name]));
+
+/** Your nations still waiting to be raised, in play order. */
+function nationsToAllot(): Nation[] {
+  const mine = myNations();
+  return NATION_ORDER.filter((n) => !state.allocated.includes(n) && (mine === null || mine.has(n)));
+}
+
+function draftFor(nation: Nation): Record<string, number> {
+  allotDraft[nation] ??= suggestAllotment(state, nation);
+  return allotDraft[nation]!;
+}
+
+/** Nudge a general's troops, keeping the nation's total at its establishment. */
+function bumpAllot(nation: Nation, id: string, delta: number): void {
+  const draft = { ...draftFor(nation) };
+  const max = TROOP_PER_GENERAL_MAX[nation];
+  const next = (draft[id] ?? 0) + delta;
+  if (next < TROOP_PER_GENERAL_MIN || next > max) return;
+  draft[id] = next;
+  allotDraft[nation] = draft;
+  renderChrome();
+}
+
+function setupBox(): string {
+  const waiting = nationsToAllot();
+  if (waiting.length === 0) {
+    const others = NATION_ORDER.filter((n) => !state.allocated.includes(n)).map((n) => NATION_LABEL[n]);
+    return `<div id="setup-box">
+      <h3>Raising the Armies</h3>
+      <p class="sub">Your armies are ready. Waiting for ${others.join(', ')} to be raised…</p>
+    </div>`;
+  }
+  if (!allotNation || !waiting.includes(allotNation)) allotNation = waiting[0]!;
+  const nation = allotNation;
+  const draft = draftFor(nation);
+  const generals = Object.values(state.pieces).filter((p) => p.nation === nation).sort((a, b) => a.rank - b.rank);
+  const spent = Object.values(draft).reduce((a, b) => a + b, 0);
+  const establishment = TROOP_MAX[nation];
+  const left = establishment - spent;
+  const max = TROOP_PER_GENERAL_MAX[nation];
+
+  const roles = (myPlayerId ? state.seats[myPlayerId] : undefined) ?? [];
+  const youAre = mode === 'net' && roles.length
+    ? `<p class="sub">You play <b>${roles.map((r) => ROLE_INFO[r as Role].name).join(' and ')}</b>.</p>`
+    : '';
+
+  const tabs = waiting.length > 1
+    ? `<div class="setup-tabs">${waiting
+        .map((n) => `<button class="gb ${n === nation ? 'primary' : ''}" data-setup="tab:${n}">${NATION_LABEL[n]}</button>`)
+        .join('')}</div>`
+    : '';
+
+  const rows = generals
+    .map((g) => {
+      const n = draft[g.id] ?? 0;
+      return `<div class="rec-row">
+        <span>${GENERAL_NAME[g.id] ?? g.id} <small>· rank ${g.rank} · ${friedrichMap.nodes.get(g.node)?.name ?? g.node}</small></span>
+        <button class="gb" data-setup="minus:${g.id}" ${n <= TROOP_PER_GENERAL_MIN ? 'disabled' : ''}>−</button>
+        <b class="rec-n">${n}</b>
+        <button class="gb" data-setup="plus:${g.id}" ${n >= max || left <= 0 ? 'disabled' : ''}>+</button>
+      </div>`;
+    })
+    .join('');
+
+  return `<div id="setup-box">
+    <h3>Raise the Army of ${NATION_LABEL[nation]}</h3>
+    ${youAre}
+    <p class="sub">Split this nation's establishment of <b>${establishment} troops</b> among its generals —
+      at least <b>1</b> each, at most <b>${max}</b>. Your generals' strengths stay <b>secret</b> from your enemies,
+      so a weak-looking flank may be a trap — or a real weakness.</p>
+    ${tabs}
+    ${rows}
+    <div class="rec-total ${left === 0 ? 'ok' : ''}">Establishment <b>${establishment}</b> · Allotted <b>${spent}</b>${
+      left !== 0 ? ` <small>(${left > 0 ? `${left} still to place` : `${-left} too many`})</small>` : ''
+    }</div>
+    <div class="duel-controls">
+      <button class="gb primary" data-setup="go" ${left === 0 ? '' : 'disabled'}>Take the Field</button>
+      <button class="gb" data-setup="even">Spread Evenly</button>
+    </div>
+  </div>`;
+}
+
 const HELP_HTML = `<div id="help-box">
   <h3>How Friedrich works</h3>
   <div class="help-grid">
@@ -631,10 +726,13 @@ function renderChrome(): void {
   log.innerHTML = state.log.slice(-14).map((l) => `<li>${l}</li>`).join('');
   log.scrollTop = log.scrollHeight;
 
-  const myTurn = canControl(nation);
+  const inSetup = state.phase === 'setup' && !state.winner;
+  const myTurn = canControl(nation) && !inSetup;
   const selMoved = selected != null && state.stageMoves[selected] !== undefined;
   const status = document.getElementById('status-line')!;
-  status.textContent = state.combat
+  status.textContent = inSetup
+    ? 'The armies are being raised…'
+    : state.combat
     ? 'Battle underway…'
     : !myTurn
       ? `Waiting for ${NATION_LABEL[nation]}…`
@@ -651,19 +749,19 @@ function renderChrome(): void {
   const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement;
   resetBtn.hidden = mode === 'net'; // server owns the game online
 
-  // player-knowledge panels (hidden during a battle — the duel dialog covers it)
-  const inBattle = !!state.combat;
+  // player-knowledge panels (hidden behind the battle and set-up dialogs, which cover them)
+  const covered = !!state.combat || inSetup;
   const handEl = document.getElementById('hand-panel') as HTMLElement;
   const handHtml = handPanel();
   handEl.innerHTML = handHtml;
-  handEl.hidden = inBattle || !handHtml;
+  handEl.hidden = covered || !handHtml;
   const armyEl = document.getElementById('army-panel') as HTMLElement;
   const armyHtml = armyPanel();
   armyEl.innerHTML = armyHtml;
-  armyEl.hidden = inBattle || !armyHtml;
+  armyEl.hidden = covered || !armyHtml;
   const statusEl = document.getElementById('status-panel') as HTMLElement;
   statusEl.innerHTML = statusPanel();
-  statusEl.hidden = inBattle;
+  statusEl.hidden = covered;
 
   (document.getElementById('btn-recruit') as HTMLButtonElement).disabled = !!state.combat || !myTurn;
 
@@ -674,6 +772,10 @@ function renderChrome(): void {
   const rec = document.getElementById('recruit-overlay')!;
   if (recruitOpen && !state.combat) { rec.classList.add('show'); rec.innerHTML = recruitBox(); }
   else { rec.classList.remove('show'); rec.innerHTML = ''; }
+
+  const setupEl = document.getElementById('setup-overlay')!;
+  if (inSetup) { setupEl.classList.add('show'); setupEl.innerHTML = setupBox(); }
+  else { setupEl.classList.remove('show'); setupEl.innerHTML = ''; }
 
   const help = document.getElementById('help-overlay')!;
   if (helpOpen) { help.classList.add('show'); help.innerHTML = HELP_HTML; }
@@ -797,9 +899,25 @@ function onPieceClick(pieceId: string): void {
   }
 }
 
+function onSetupClick(cmd: string): void {
+  const nation = allotNation;
+  if (!nation) return;
+  const [verb, arg] = cmd.split(':');
+  if (verb === 'tab') { allotNation = arg as Nation; renderChrome(); return; }
+  if (verb === 'plus') return bumpAllot(nation, arg!, 1);
+  if (verb === 'minus') return bumpAllot(nation, arg!, -1);
+  if (verb === 'even') { allotDraft[nation] = suggestAllotment(state, nation); renderChrome(); return; }
+  if (verb === 'go') {
+    dispatch({ type: 'allotTroops', nation, alloc: draftFor(nation) });
+    allotNation = null; // fall through to your next unraised nation
+  }
+}
+
 function onHudClick(e: Event): void {
   const rt = (e.target as Element).closest('[data-rec]') as HTMLElement | null;
   if (rt) return onRecruitClick(rt.dataset.rec!);
+  const st = (e.target as Element).closest('[data-setup]') as HTMLElement | null;
+  if (st) return onSetupClick(st.dataset.setup!);
   const ht = (e.target as Element).closest('[data-help],#btn-help') as HTMLElement | null;
   if (ht) { helpOpen = ht.id === 'btn-help'; renderChrome(); return; }
 
@@ -913,6 +1031,7 @@ function mount(): void {
         </div>
         <div id="combat-overlay"></div>
         <div id="recruit-overlay" class="modal"></div>
+        <div id="setup-overlay" class="modal"></div>
         <div id="help-overlay" class="modal"></div>
         <div id="gameover"></div>
       </div>

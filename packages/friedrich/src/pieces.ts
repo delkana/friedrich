@@ -29,24 +29,64 @@ export function areEnemies(a: Nation, b: Nation): boolean {
 }
 
 /**
- * Starting positions on the authentic map. Named starts follow the official
- * army sheet (Daun at Brünn, Laudon at Olmütz, Ferdinand at Stade, Soubise at
- * Fulda…); sector-coded Prussian/Russian starts are approximated to sensible
- * cities pending the full 24-general setup. Troop counts are demo values — real
- * setup lets players secretly allot troops.
+ * The full roster of 24 generals, with the names, ranks and per-nation counts of
+ * the official army sheet. Troops are NOT fixed here: at set-up each player
+ * secretly allots their nation's establishment across its generals (rule "How to
+ * start"), so `troops` is filled in during the setup phase.
+ *
+ * The sheet gives each general's set-up city as a map grid reference (Friedrich
+ * F4, Lehwaldt M9, …). Those margin coordinates aren't in our extracted map
+ * data, so the cities below are the historically sensible ones in the right
+ * sector (Lehwaldt in East Prussia, Dohna in Pomerania, Schwerin/Keith in
+ * Silesia, Frederick invading Saxony). Every one is verified to start in supply.
  */
-export const INITIAL_PIECES: readonly Omit<Piece, 'faceUp'>[] = [
-  { id: 'friedrich', nation: 'prussia', rank: 1, node: 'berlin', troops: 8 },
-  { id: 'heinrich', nation: 'prussia', rank: 3, node: 'leipzig', troops: 5 },
-  { id: 'keith', nation: 'prussia', rank: 5, node: 'dresden', troops: 4 },
-  { id: 'ferdinand', nation: 'hanover', rank: 1, node: 'stade', troops: 4 },
-  { id: 'daun', nation: 'austria', rank: 1, node: 'brunn', troops: 8 },
-  { id: 'browne', nation: 'austria', rank: 2, node: 'melnik', troops: 6 },
-  { id: 'laudon', nation: 'austria', rank: 4, node: 'olmutz', troops: 5 },
-  { id: 'fermor', nation: 'russia', rank: 2, node: 'warszawa', troops: 6 },
-  { id: 'richelieu', nation: 'france', rank: 1, node: 'iserlohn', troops: 6 },
-  { id: 'soubise', nation: 'france', rank: 2, node: 'fulda', troops: 5 },
+export interface GeneralSpec {
+  readonly id: string;
+  readonly name: string;
+  readonly nation: Nation;
+  readonly rank: number;
+  readonly node: NodeId;
+}
+
+export const ALL_GENERALS: readonly GeneralSpec[] = [
+  // Prussia (8) — establishment 32
+  { id: 'friedrich', name: 'Friedrich d. Große', nation: 'prussia', rank: 1, node: 'dresden' },
+  { id: 'winterfeldt', name: 'Winterfeldt', nation: 'prussia', rank: 2, node: 'dresden' },
+  { id: 'heinrich', name: 'Prinz Heinrich', nation: 'prussia', rank: 3, node: 'leipzig' },
+  { id: 'schwerin', name: 'Schwerin', nation: 'prussia', rank: 4, node: 'breslau' },
+  { id: 'keith', name: 'Keith', nation: 'prussia', rank: 5, node: 'breslau' },
+  { id: 'seydlitz', name: 'Seydlitz', nation: 'prussia', rank: 6, node: 'berlin' },
+  { id: 'dohna', name: 'Dohna', nation: 'prussia', rank: 7, node: 'stettin' },
+  { id: 'lehwaldt', name: 'Lehwaldt', nation: 'prussia', rank: 8, node: 'konigsberg' },
+  // Hanover (2) — establishment 12
+  { id: 'ferdinand', name: 'Ferdinand v. Braunschweig', nation: 'hanover', rank: 1, node: 'stade' },
+  { id: 'cumberland', name: 'Cumberland', nation: 'hanover', rank: 2, node: 'hannover' },
+  // Russia (4) — establishment 16
+  { id: 'saltikov', name: 'Saltikov', nation: 'russia', rank: 1, node: 'warszawa' },
+  { id: 'fermor', name: 'Fermor', nation: 'russia', rank: 2, node: 'warszawa' },
+  { id: 'apraxin', name: 'Apraxin', nation: 'russia', rank: 3, node: 'torun' },
+  { id: 'tottleben', name: 'Tottleben', nation: 'russia', rank: 4, node: 'torun' },
+  // Sweden (1) — establishment 4
+  { id: 'ehrensvard', name: 'Ehrensvärd', nation: 'sweden', rank: 1, node: 'stralsund' },
+  // Austria (5) — establishment 30
+  { id: 'daun', name: 'Daun', nation: 'austria', rank: 1, node: 'brunn' },
+  { id: 'browne', name: 'Browne', nation: 'austria', rank: 2, node: 'melnik' },
+  { id: 'lothringen', name: 'Karl v. Lothringen', nation: 'austria', rank: 3, node: 'melnik' },
+  { id: 'laudon', name: 'Laudon', nation: 'austria', rank: 4, node: 'olmutz' },
+  { id: 'lacy', name: 'Lacy', nation: 'austria', rank: 5, node: 'tabor' },
+  // Imperial Army (1) — establishment 6
+  { id: 'hildburghausen', name: 'Hildburghausen', nation: 'imperial', rank: 1, node: 'erlangen' },
+  // France (3) — establishment 20
+  { id: 'richelieu', name: 'Richelieu', nation: 'france', rank: 1, node: 'iserlohn' },
+  { id: 'soubise', name: 'Soubise', nation: 'france', rank: 2, node: 'fulda' },
+  { id: 'chevert', name: 'Chevert', nation: 'france', rank: 3, node: 'iserlohn' },
 ];
+
+/** Per-general troop limits at set-up (army sheet: min 1, max 8 — less for the minors). */
+export const TROOP_PER_GENERAL_MAX: Record<Nation, number> = {
+  prussia: 8, hanover: 8, russia: 8, sweden: 4, austria: 8, imperial: 6, france: 8,
+};
+export const TROOP_PER_GENERAL_MIN = 1;
 
 export const MAX_STACK = 3;
 

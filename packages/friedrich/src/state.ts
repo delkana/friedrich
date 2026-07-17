@@ -20,6 +20,13 @@ export interface CombatSub {
 }
 
 export interface FriedrichState extends BaseState {
+  /**
+   * `setup` = players are secretly allotting their troop establishments to their
+   * generals ("How to start"); the war begins once every nation has allotted.
+   */
+  readonly phase: 'setup' | 'war';
+  /** Nations whose troops have been allotted during set-up. */
+  readonly allocated: readonly Nation[];
   /** Seated players in seat order. */
   readonly players: readonly PlayerId[];
   /** Which role(s) each seat controls (a 3-player seat can hold two). */
@@ -67,6 +74,8 @@ export interface FriedrichState extends BaseState {
 }
 
 export type FriedrichAction =
+  /** Set-up: secretly allot a nation's whole establishment across its generals. */
+  | ({ type: 'allotTroops'; nation: Nation; alloc: Record<string, number> } & BaseAction)
   | ({ type: 'move'; pieceId: string; to: string } & BaseAction)
   | ({ type: 'moveTrain'; trainId: string; to: string } & BaseAction)
   /**

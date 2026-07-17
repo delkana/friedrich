@@ -209,12 +209,14 @@
       .modal { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
         background: radial-gradient(80% 80% at 50% 45%, #0009, #000d); z-index: 20; overflow: auto; padding: 20px; }
       .modal.show { display: flex; }
-      #recruit-box, #help-box { width: min(640px, 94vw); max-height: 90vh; overflow: auto; padding: 6px 20px 18px;
+      #recruit-box, #help-box, #setup-box { width: min(640px, 94vw); max-height: 90vh; overflow: auto; padding: 6px 20px 18px;
         background: linear-gradient(#211a10, #17110a); border: 1px solid #5a4a24; border-radius: 6px; box-shadow: 0 20px 60px #000d; }
       #help-box { width: min(760px, 94vw); }
-      #recruit-box h3, #help-box h3 { font-family: Georgia, serif; letter-spacing: 3px; text-transform: uppercase;
+      #recruit-box h3, #help-box h3, #setup-box h3 { font-family: Georgia, serif; letter-spacing: 3px; text-transform: uppercase;
         color: var(--gold); text-align: center; margin: 14px 0 6px; }
-      #recruit-box .sub, #help-box .sub { color: var(--muted); font-size: 12px; }
+      #recruit-box .sub, #help-box .sub, #setup-box .sub { color: var(--muted); font-size: 12px; }
+      #setup-box .sub { line-height: 1.55; }
+      .setup-tabs { display: flex; gap: 8px; justify-content: center; margin: 12px 0 6px; flex-wrap: wrap; }
       .rec-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0;
         border-bottom: 1px dashed #ffffff10; font-size: 14px; }
       .rec-row small { color: var(--muted); }

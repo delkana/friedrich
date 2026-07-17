@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { SUITS } from '@friedrich/engine';
 import { friedrichMap, NODES, EDGES } from './map-data.js';
-import { INITIAL_PIECES } from './pieces.js';
+import { ALL_GENERALS, INITIAL_TRAINS } from './pieces.js';
 
 /**
  * Sanity checks on the GENERATED authentic map data (movement mechanics are
@@ -51,7 +51,7 @@ test('the road network is one fully connected component', () => {
       }
     }
   }
-  for (const p of INITIAL_PIECES) {
+  for (const p of [...ALL_GENERALS, ...INITIAL_TRAINS]) {
     assert.ok(seen.has(p.node), `${p.id} at ${p.node} is disconnected from the main map`);
   }
   assert.equal(seen.size, NODES.length, 'every city is reachable from Berlin');
