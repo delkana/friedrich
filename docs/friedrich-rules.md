@@ -301,9 +301,18 @@ VASSAL setup stacks. Start sectors in parens (army-sheet grid refs).
   simply be marched away, so they block re-entry without earning you a substitute.
 
 ## Implementation notes
-- **Fixed-length retreat search is bounded.** Enumerating simple paths of an
-  exact length is exponential in the worst case, so `retreat.ts` caps the search
-  (400k steps). Real retreats are ≤8 cities and never come close.
+- **Retreat is decided, not enumerated.** Listing every exact-length simple path
+  explodes (~6.5× per two extra cities), and retreats are as long as the troops
+  lost — 20+ for a big stack, not the ≤8 one might assume from a lone general.
+  `retreat.ts` never enumerates: only the cities furthest from the winner can be
+  the answer, so it ranks candidates by that distance and decides one band at a
+  time, stopping at the first band that yields a legal path. This is fast
+  structurally — the winner is always adjacent to the loser, so a city far from
+  the winner is far from the retreat's start, leaving almost no slack, and slack
+  is what makes the search branch. ~10-20ms at 31 cities, the worst a legal
+  position allows (map diameter is 43+). A bipartite pocket fixes path parity, so
+  the one case that could otherwise thrash is decided outright by 2-colouring.
+  Cross-checked against brute force in `retreat.test.ts`.
 - **Sectors are derived, not listed.** A city's sector is its nearest suit stamp
   (`sectors.ts`), which is also how its suit is assigned — so the substitute
   regions above are computed from the rule's own words rather than hand-listed.

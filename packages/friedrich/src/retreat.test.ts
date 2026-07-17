@@ -84,8 +84,51 @@ test('a retreat never re-enters a city, so a dead end cannot be padded out', () 
   for (const node of options) assert.notEqual(node, 'torgau', 'torgau is 1 step, not 2');
 });
 
-test('a stack that cannot go the full distance has nowhere to retreat', () => {
-  const s = scene('berlin', 'potsdam');
-  // no simple path of 600 steps exists from Berlin
-  assert.deepEqual(retreatOptions(s.pieces, NO_TRAINS, s.from, s.winner, 600), []);
+test('a stack beaten in a dead end with the exit held is destroyed', () => {
+  // Jever is a real cul-de-sac: one road out, and the winner is standing on it
+  const exit = [...friedrichMap.adjacency.get('jever')!];
+  assert.equal(exit.length, 1, 'Jever is a dead end');
+  const s = scene('jever', exit[0]!);
+  assert.deepEqual(retreatOptions(s.pieces, NO_TRAINS, s.from, s.winner, 3), [], 'nowhere to go — wiped out');
+});
+
+test('a long retreat needs a big enough pocket, not just a road', () => {
+  // seal off Jever's corner: Oldenburg blocked leaves a pocket far too small
+  // to walk 20 cities through without repeating one
+  const s = scene('jever', 'oldenburg-19');
+  assert.deepEqual(retreatOptions(s.pieces, NO_TRAINS, s.from, s.winner, 20), []);
+});
+
+/** Brute force: every endpoint of an exact-length simple path through open cities. */
+function bruteForce(from: string, blocked: ReadonlySet<string>, distance: number): Set<string> {
+  const ends = new Set<string>();
+  const seen = new Set<string>([from]);
+  const walk = (node: string, depth: number): void => {
+    if (depth === distance) { ends.add(node); return; }
+    for (const next of friedrichMap.adjacency.get(node) ?? []) {
+      if (seen.has(next) || blocked.has(next)) continue;
+      seen.add(next); walk(next, depth + 1); seen.delete(next);
+    }
+  };
+  walk(from, 0);
+  return ends;
+}
+
+test('it agrees with brute force about where a retreat can end', () => {
+  // The real thing never enumerates paths — it ranks candidates and asks a
+  // decision question. Check that shortcut against the exhaustive answer.
+  for (const [from, winner] of [['berlin', 'potsdam'], ['oschatz', 'riesa'], ['breslau', 'ohlau']] as const) {
+    const s = scene(from, winner);
+    const blocked = new Set([winner]);
+    for (const distance of [1, 2, 3, 4, 5, 6, 7]) {
+      const all = bruteForce(from, blocked, distance);
+      const furthest = Math.max(...[...all].map((n) => hopDistance(friedrichMap, n, winner)));
+      const expected = [...all].filter((n) => hopDistance(friedrichMap, n, winner) === furthest).sort();
+      assert.deepEqual(
+        retreatOptions(s.pieces, NO_TRAINS, from, winner, distance),
+        expected,
+        `${from} at distance ${distance}`,
+      );
+    }
+  }
 });
