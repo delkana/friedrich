@@ -65,9 +65,50 @@ function assignSeats(players: readonly PlayerId[], rng: RngState): { seats: Reco
 
 const activeNationOf = (s: FriedrichState): Nation => NATION_ORDER[s.activeNationIndex]!;
 
-/** Display helpers so the dispatch log reads like a report, not like ids. */
+// ---- names for the log ---------------------------------------------------
+// The log is the game's narration and the only record a player can look back
+// over, so it never shows an internal id: not `oschatz`, not `keith`, not
+// `imperial`. Every message goes through one of these.
+
+/** "Oschatz", not `oschatz`. */
 export const cityName = (id: string): string => friedrichMap.nodes.get(id)?.name ?? id;
-export const properName = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
+
+const NATION_NAME: Record<Nation, string> = {
+  prussia: 'Prussia',
+  hanover: 'Hanover',
+  austria: 'Austria',
+  russia: 'Russia',
+  sweden: 'Sweden',
+  imperial: 'the Imperial Army',
+  france: 'France',
+};
+/** "the Imperial Army", not `imperial`. */
+export const nationName = (n: Nation): string => NATION_NAME[n] ?? n;
+
+/** Sentence-leading form: "The Imperial Army draws…". */
+export const NationName = (n: Nation): string => {
+  const s = nationName(n);
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+const NATION_ADJ: Record<Nation, string> = {
+  prussia: 'Prussian',
+  hanover: 'Hanoverian',
+  austria: 'Austrian',
+  russia: 'Russian',
+  sweden: 'Swedish',
+  imperial: 'Imperial',
+  france: 'French',
+};
+/** Adjectival form: "a Prussian supply train", never "a prussia supply train". */
+export const nationAdj = (n: Nation): string => NATION_ADJ[n] ?? n;
+
+const GENERAL_NAMES: Record<string, string> = Object.fromEntries(ALL_GENERALS.map((g) => [g.id, g.name]));
+/** "Friedrich d. Große", not `friedrich`. */
+export const generalName = (id: string): string => GENERAL_NAMES[id] ?? id;
+
+/** "1 troop", "3 troops". */
+const count = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
 function occupiedNodes(pieces: PieceMap): Set<string> {
   const set = new Set<string>();
@@ -159,7 +200,7 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
 
     if (r.loserEliminated) {
       for (const p of stack) delete pieces[p.id];
-      log.push(`${properName(loserNation)}'s force at ${cityName(loserNode)} is wiped out (${r.casualties} troops lost).`);
+      log.push(`${NationName(loserNation)}'s force at ${cityName(loserNode)} is wiped out — ${count(r.casualties, 'troop')} lost.`);
     } else {
       applyCasualties(pieces, stack, r.casualties);
       const survivors = stack.filter((p) => pieces[p.id]);
@@ -168,11 +209,11 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
       const options = retreatOptions(pieces, state.trains, loserNode, winnerNode, r.casualties);
       if (options.length === 0) {
         for (const p of survivors) delete pieces[p.id];
-        log.push(`${properName(loserNation)} lost ${r.casualties} and could not retreat the full ${r.casualties} cities — destroyed.`);
+        log.push(`${NationName(loserNation)} lost ${count(r.casualties, 'troop')} and could not retreat the full ${r.casualties} cities — destroyed.`);
       } else if (options.length === 1) {
         const dest = options[0]!;
         for (const p of survivors) pieces[p.id] = { ...pieces[p.id]!, node: dest };
-        log.push(`${properName(loserNation)} loses ${r.casualties} and retreats ${r.casualties} to ${cityName(dest)}.`);
+        log.push(`${NationName(loserNation)} loses ${count(r.casualties, 'troop')} and retreats ${count(r.casualties, 'city', 'cities')} to ${cityName(dest)}.`);
       } else {
         pendingRetreat = {
           nation: loserNation,
@@ -181,7 +222,7 @@ function finalizeCombat(state: FriedrichState, combat: CombatSub): FriedrichStat
           from: loserNode,
           options,
         };
-        log.push(`${properName(loserNation)} loses ${r.casualties} and must retreat ${r.casualties} — ${properName(winnerNation)} chooses the path.`);
+        log.push(`${NationName(loserNation)} loses ${count(r.casualties, 'troop')} and must retreat ${count(r.casualties, 'city', 'cities')} — ${NationName(winnerNation)} chooses the path.`);
       }
     }
   }
@@ -302,7 +343,7 @@ function beginStage(state: FriedrichState, nation: Nation): FriedrichState {
   if (allot <= 0) return state;
   const res = drawCards(state, allot);
   const hand: TacticalCard[] = [...state.hands[nation], ...res.drawn];
-  const log = [...res.log, `${properName(nation)} draws ${res.drawn.length} card(s).`];
+  const log = [...res.log, `${NationName(nation)} draws ${count(res.drawn.length, 'card')}.`];
   // "Of the four Tactical Cards drawn each turn, select one to discard
   // immediately" — France's choice, so the stage waits for it.
   const pendingDiscard =
@@ -350,7 +391,7 @@ function eliminateNation(state: FriedrichState, nation: Nation): FriedrichState 
     hands: { ...state.hands, [nation]: [] },
     conquered,
     eliminated: [...state.eliminated, nation],
-    log: [...state.log, `${nation} withdraws from the war.`],
+    log: [...state.log, `${NationName(nation)} withdraws from the war.`],
   };
 }
 
@@ -362,7 +403,7 @@ function retirePrussianGeneral(state: FriedrichState): FriedrichState {
   if (!victim) return state;
   const pieces = { ...state.pieces };
   delete pieces[victim.id];
-  return { ...state, pieces, log: [...state.log, `A Prussian general (${victim.id}) is retired.`] };
+  return { ...state, pieces, log: [...state.log, `${generalName(victim.id)} is retired from the Prussian army.`] };
 }
 
 /** Draw and execute the top Card of Fate. */
@@ -492,11 +533,11 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
     }
     // the discard is made "immediately": nothing else happens until France picks
     if (state.pendingDiscard && action.type !== 'discardCard' && action.type !== 'ping') {
-      throw new IllegalActionError(`${properName(state.pendingDiscard.nation)} must discard a card first.`);
+      throw new IllegalActionError(`${NationName(state.pendingDiscard.nation)} must discard a card first.`);
     }
     // "A defeated general has to retreat before the next combat is resolved."
     if (state.pendingRetreat && action.type !== 'chooseRetreat' && action.type !== 'ping') {
-      throw new IllegalActionError(`${properName(state.pendingRetreat.chooser)} must first choose where ${properName(state.pendingRetreat.nation)} retreats.`);
+      throw new IllegalActionError(`${NationName(state.pendingRetreat.chooser)} must first choose where ${nationName(state.pendingRetreat.nation)} retreats.`);
     }
     switch (action.type) {
       case 'ping':
@@ -518,7 +559,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           version: state.version + 1,
           pieces,
           pendingRetreat: null,
-          log: [...state.log, `${properName(pending.nation)} retreats to ${cityName(action.node)}.`],
+          log: [...state.log, `${NationName(pending.nation)} retreats to ${cityName(action.node)}.`],
         });
       }
 
@@ -539,14 +580,14 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           },
           playedSets: setAside(state.playedSets, [card]),
           pendingDiscard: null,
-          log: [...state.log, `${properName(pending.nation)} discards a card face-down.`],
+          log: [...state.log, `${NationName(pending.nation)} discards a card face-down.`],
         };
       }
 
       case 'allotTroops': {
         if (state.phase !== 'setup') throw new IllegalActionError('Troops are allotted only at set-up.');
         const { nation, alloc } = action;
-        if (state.allocated.includes(nation)) throw new IllegalActionError(`${nation} has already allotted its troops.`);
+        if (state.allocated.includes(nation)) throw new IllegalActionError(`${NationName(nation)} has already allotted its troops.`);
 
         const generals = Object.values(state.pieces).filter((p) => p.nation === nation);
         const ids = new Set(generals.map((g) => g.id));
@@ -562,7 +603,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         }
         const total = Object.values(alloc).reduce((a, b) => a + b, 0);
         if (total !== TROOP_MAX[nation]) {
-          throw new IllegalActionError(`${nation} must allot all ${TROOP_MAX[nation]} troops (you allotted ${total}).`);
+          throw new IllegalActionError(`${NationName(nation)} must allot all ${TROOP_MAX[nation]} troops — you allotted ${total}.`);
         }
 
         const pieces = { ...state.pieces };
@@ -573,7 +614,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           version: state.version + 1,
           pieces,
           allocated,
-          log: [...state.log, `${properName(nation)} has raised its army (${total} troops).`],
+          log: [...state.log, `${NationName(nation)} takes the field with ${count(total, 'troop')}.`],
         };
         // once every nation has allotted, the war begins with Prussia's stage
         if (NATION_ORDER.every((n) => allocated.includes(n))) {
@@ -586,7 +627,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         if (state.combat) throw new IllegalActionError('Finish the current battle first.');
         const piece = state.pieces[action.pieceId];
         if (!piece) throw new IllegalActionError('No such general.');
-        if (piece.nation !== activeNationOf(state)) throw new IllegalActionError(`It is ${activeNationOf(state)}'s turn.`);
+        if (piece.nation !== activeNationOf(state)) throw new IllegalActionError(`It is ${nationName(activeNationOf(state))}'s turn.`);
         if (state.stageMoves[piece.id] !== undefined) {
           throw new IllegalActionError('That general has already moved this turn. Undo it first.');
         }
@@ -602,7 +643,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
 
         const pieces = { ...state.pieces, [piece.id]: { ...piece, node: action.to } };
         const dest = friedrichMap.nodes.get(action.to)!;
-        const log = [`${properName(piece.id)} marches to ${dest.name}.`];
+        const log = [`${generalName(piece.id)} marches to ${dest.name}.`];
 
         // capture an enemy supply train standing in the entered city
         let trains = state.trains;
@@ -616,7 +657,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           trains = tr;
           // the loser may buy it back later at a depot (§10)
           offMapTrains = { ...state.offMapTrains, [enemyTrain.nation]: (state.offMapTrains[enemyTrain.nation] ?? 0) + 1 };
-          log.push(`${piece.nation} captures a ${enemyTrain.nation} supply train at ${dest.name}!`);
+          log.push(`${NationName(piece.nation)} captures a ${nationAdj(enemyTrain.nation)} supply train at ${dest.name}!`);
         }
 
         // objective conquest: an attacker seizes its own objective by occupying
@@ -625,7 +666,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         if (dest.objectiveFor) {
           if (piece.nation === dest.objectiveFor) {
             conquered = { ...conquered, [action.to]: piece.nation };
-            log.push(`${piece.nation} seizes ${dest.name}!`);
+            log.push(`${NationName(piece.nation)} seizes ${dest.name}!`);
           } else if (sideOf(piece.nation) === 'defender' && conquered[action.to]) {
             const c = { ...conquered };
             delete c[action.to];
@@ -650,7 +691,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         if (state.combat) throw new IllegalActionError('Finish the current battle first.');
         const train = state.trains[action.trainId];
         if (!train) throw new IllegalActionError('No such supply train.');
-        if (train.nation !== activeNationOf(state)) throw new IllegalActionError(`It is ${activeNationOf(state)}'s turn.`);
+        if (train.nation !== activeNationOf(state)) throw new IllegalActionError(`It is ${nationName(activeNationOf(state))}'s turn.`);
 
         // trains move 2 cities (3 entirely on main roads), no jumping over pieces
         const occupied = new Set<string>([
@@ -673,7 +714,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           ...state,
           version: state.version + 1,
           trains: { ...state.trains, [train.id]: { ...train, node: action.to } },
-          log: [...state.log, `${train.nation} supply train → ${action.to}.`],
+          log: [...state.log, `A ${nationAdj(train.nation)} supply train moves to ${cityName(action.to)}.`],
         };
       }
 
@@ -711,7 +752,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         // troop establishment ceiling
         const onMap = Object.values(state.pieces).filter((p) => p.nation === nation).reduce((n, p) => n + p.troops, 0);
         if (onMap + troops > TROOP_MAX[nation]) {
-          throw new IllegalActionError(`${nation} may not exceed its establishment of ${TROOP_MAX[nation]} troops.`);
+          throw new IllegalActionError(`${NationName(nation)} may not exceed its establishment of ${TROOP_MAX[nation]} troops.`);
         }
 
         // a re-entering general is free but must receive at least one troop
@@ -747,7 +788,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         const playedSets = setAside(state.playedSets, paying.map((c) => c!));
         const where = action.node ? friedrichMap.nodes.get(action.node)?.name ?? action.node : '';
         const log = [
-          `${properName(nation)} recruits ${troops} troop(s)${wantTrains ? ` and ${wantTrains} supply train(s)` : ''} for ${cost} points (paid ${paid})${substituting ? ' — at the blocked-depot rate of 8' : ''}.`,
+          `${NationName(nation)} recruits ${count(troops, 'troop')}${wantTrains ? ` and ${count(wantTrains, 'supply train')}` : ''} for ${cost} points${paid > cost ? ` (paid ${paid} — ${paid - cost} lost)` : ''}${substituting ? ', at the blocked-depot rate of 8' : ''}.`,
         ];
 
         const pieces = { ...state.pieces };
@@ -756,7 +797,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           // re-enters with the new troops; may not move this phase
           pieces[general.id] = { id: general.id, nation, rank: general.rank, node: action.node, troops, faceUp: true };
           delete offMap[general.id];
-          log.push(`${general.id} returns to the field at ${where}.`);
+          log.push(`${generalName(general.id)} returns to the field at ${where}.`);
         } else if (reinforce) {
           // The log is public, so it must not say WHO was reinforced: "a player
           // just says how many troops he is recruiting, but not which general(s)
@@ -764,7 +805,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           // troops-total of his nation."
           pieces[reinforce.id] = { ...reinforce, troops: reinforce.troops + troops };
         }
-        if (troops > 0) log.push(`${properName(nation)} now commands ${onMap + troops} troops.`);
+        if (troops > 0) log.push(`${NationName(nation)} now commands ${count(onMap + troops, 'troop')}.`);
 
         let trains = state.trains;
         let offMapTrains = state.offMapTrains;
@@ -776,7 +817,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           }
           trains = t;
           offMapTrains = { ...offMapTrains, [nation]: (offMapTrains[nation] ?? 0) - wantTrains };
-          log.push(`A ${nation} supply train returns at ${where}.`);
+          log.push(`${wantTrains === 1 ? `A ${nationAdj(nation)} supply train returns` : `${count(wantTrains, `${nationAdj(nation)} supply train`)} return`} at ${where}.`);
         }
 
         return {
@@ -809,7 +850,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           version: state.version + 1,
           pieces: { ...state.pieces, [action.pieceId]: { ...piece, node: origin } },
           stageMoves,
-          log: [...state.log, `${action.pieceId} move undone (→ ${origin}).`],
+          log: [...state.log, `${generalName(action.pieceId)} returns to ${cityName(origin)} — move undone.`],
         };
       }
 
@@ -818,7 +859,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
         const atk = state.pieces[action.attackerId];
         const def = state.pieces[action.defenderId];
         if (!atk || !def) throw new IllegalActionError('No such general.');
-        if (atk.nation !== activeNationOf(state)) throw new IllegalActionError(`It is ${activeNationOf(state)}'s turn.`);
+        if (atk.nation !== activeNationOf(state)) throw new IllegalActionError(`It is ${nationName(activeNationOf(state))}'s turn.`);
         if (!areEnemies(atk.nation, def.nation)) throw new IllegalActionError('That is not an enemy.');
         if (!areAdjacent(friedrichMap, atk.node, def.node)) throw new IllegalActionError('Target is not adjacent.');
 
@@ -851,8 +892,8 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           stageMoves: {}, // committing to a battle finalizes this stage's moves
           log: [
             ...state.log,
-            `${properName(atk.nation)} attacks ${properName(def.nation)} at ${cityName(def.node)}.`,
-            `Strengths declared: ${properName(atk.nation)} ${sum(atkStack)}, ${properName(def.nation)} ${sum(defStack)}.`,
+            `${NationName(atk.nation)} attacks ${nationName(def.nation)} at ${cityName(def.node)}.`,
+            `Strengths declared — ${NationName(atk.nation)} ${sum(atkStack)}, ${NationName(def.nation)} ${sum(defStack)}.`,
           ],
         };
       }
@@ -898,7 +939,7 @@ export const Friedrich: GameDefinition<FriedrichState, FriedrichAction> = {
           activeNationIndex: idx,
           turn: wrapped ? state.turn + 1 : state.turn,
           stageMoves: {}, // new stage: fresh move budget and ghosts
-          log: [...state.log, `${activeNationOf(state)} ends its stage; ${NATION_ORDER[idx]} to act.`],
+          log: [...state.log, `${NationName(activeNationOf(state))} ends its stage — ${nationName(NATION_ORDER[idx]!)} to act.`],
         };
         // from the end of turn 6, the Clock of Fate draws one card each turn
         if (wrapped && finishedRound >= 6 && next.fateDeck.length > 0) {

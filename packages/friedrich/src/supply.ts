@@ -9,11 +9,12 @@
  */
 
 import { friedrichMap } from './map-data.js';
-import { sideOf, SUPPLY_RANGE, DEPOT_CITIES, type Piece, type Train } from './pieces.js';
+import { sideOf, SUPPLY_RANGE, DEPOT_CITIES, ALL_GENERALS, type Piece, type Train } from './pieces.js';
 import type { Nation } from './powers.js';
 import type { FriedrichState } from './state.js';
 
-const name = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
+/** The general's real name for the log — never his internal id. */
+const name = (id: string): string => ALL_GENERALS.find((g) => g.id === id)?.name ?? id;
 
 /** Cities a general may not trace supply through: those holding a hostile piece. */
 function hostileNodes(state: FriedrichState, side: 'attacker' | 'defender'): Set<string> {

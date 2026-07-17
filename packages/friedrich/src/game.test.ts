@@ -92,6 +92,30 @@ test('a new game is a new deal, not a repeat of the last one', () => {
   assert.equal(opening.size, 20, "Prussia's opening hand differs game to game");
 });
 
+test('the log never shows an internal id', () => {
+  // The log is the game's narration, and the only record a player can look back
+  // over. It once said "prussia supply train → oschatz" and "keith is
+  // reinforced"; every message goes through cityName/nationName/generalName now.
+  let s = fresh();
+  s = act(s, { type: 'moveTrain', by: 'p0', trainId: 'sup-prussia-1', to: emptyNeighbour(s, 'juterbog') });
+  s = act(s, { type: 'move', by: 'p0', pieceId: 'friedrich', to: 'torgau' });
+  s = act(s, { type: 'undoMove', by: 'p0', pieceId: 'friedrich' });
+  for (let i = 0; i < 8; i++) s = endStage(s);
+
+  const ids = [
+    ...NATION_ORDER, // 'prussia', 'imperial', …
+    ...Object.keys(s.pieces), // 'friedrich', 'keith', …
+    ...Object.values(s.trains).map((t) => t.id),
+    'oschatz', 'juterbog', 'torgau', // node ids
+  ];
+  for (const line of s.log) {
+    for (const id of ids) {
+      // ids are lowercase; a real name is capitalised or spelled out
+      assert.ok(!new RegExp(`\\b${id}\\b`).test(line), `log line shows the raw id "${id}": ${line}`);
+    }
+  }
+});
+
 test('the raffle deals roles to different seats across games', () => {
   const seatOf = (seed: string): string =>
     PLAYERS.find((p) => Friedrich.setup(seed, PLAYERS).seats[p]?.includes('frederick'))!;
@@ -329,7 +353,7 @@ test('strength stays secret until a battle declares it', () => {
   assert.deepEqual(fought.sightings['friedrich'], { total: 4, with: [], certain: true });
   assert.deepEqual(fought.sightings['browne'], { total: 6, with: [], certain: true });
   assert.equal(fought.sightings['winterfeldt'], undefined, 'a general who did not fight declared nothing');
-  assert.ok(fought.log.some((l) => /Strengths declared: Prussia 4, Austria 6/.test(l)));
+  assert.ok(fought.log.some((l) => /Strengths declared — Prussia 4, Austria 6/.test(l)));
 });
 
 test('a stack declares its total, never the split inside it', () => {
